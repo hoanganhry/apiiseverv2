@@ -422,7 +422,7 @@
   <section class="tab-panel" id="tab-packages" style="display:none;">
     <div class="panel">
       <h2>Quản lý gói ứng dụng</h2>
-      <p class="sub">Tạo mã gói, gắn key và gửi thông báo khi cần tắt phiên bản cũ. App cần gọi API kiểm tra trạng thái để nhận thông báo và khóa tính năng an toàn.</p>
+      <p class="sub">Tạo gói để xuất hiện trong danh sách chọn lúc tạo key. Bạn có thể bật/tắt gói và cập nhật thông báo mà app sẽ nhận ở lần kiểm tra API kế tiếp.</p>
       <div class="grid">
         <div class="field">
           <label>Mã quản trị máy chủ</label>
@@ -445,7 +445,7 @@
       <div class="grid">
         <div class="field"><label>Mã gói (dùng trong app)</label><input id="packageNewId" maxlength="64" placeholder="ios-v2"></div>
         <div class="field"><label>Tên gói</label><input id="packageNewName" maxlength="80" placeholder="Ứng dụng iOS v2"></div>
-        <div class="field"><label>Thông báo khi bị khóa</label><input id="packageNewMessage" maxlength="500" placeholder="Phiên bản cũ đã ngừng hỗ trợ. Hãy cài bản mới."></div>
+        <div class="field"><label>Tin nhắn gửi đến app</label><input id="packageNewMessage" maxlength="500" placeholder="Thông báo bảo trì, cập nhật hoặc ngừng hỗ trợ..."></div>
         <div class="field"><label>Link cập nhật (không bắt buộc)</label><input id="packageNewUpdateUrl" type="url" maxlength="2048" placeholder="https://..."></div>
       </div>
       <div class="row" style="margin-top:16px;"><button class="btn" onclick="createPackage()">Tạo gói</button></div>
@@ -453,7 +453,7 @@
     <div class="panel">
       <h2>Gói hiện có</h2>
       <div id="packagesTableWrap" class="table-wrap"><div class="empty-state">Nhập mã quản trị để tải gói.</div></div>
-      <div class="hint">App gọi <code>POST /api/app/check-package</code> với <code>{"packageId":"ios-v2","key":"..."}</code> khi mở app và định kỳ để lấy thông báo; sau đó gửi cùng <code>packageId</code> khi gọi <code>POST /api/verify-key</code>. Khi tắt gói, API trả <code>allowed:false</code> để app hiện thông báo và khóa tính năng. Đây là kiểm tra theo lượt gọi API, không phải thông báo đẩy khi app đang đóng.</div>
+      <div class="hint">Nút “Lưu &amp; gửi tin nhắn” cập nhật nội dung mà app nhận ở lần gọi <code>POST /api/app/check-package</code> tiếp theo. App cần kiểm tra khi mở và định kỳ, rồi tự hiện tin nhắn. Khi tắt gói, API trả <code>allowed:false</code> để app khóa tính năng an toàn. Đây không phải thông báo đẩy và không gửi được khi app chưa gọi API/đang đóng.</div>
     </div>
   </section>
 
@@ -779,7 +779,7 @@ async function loadPackages() {
         <td data-label="Link cập nhật"><input class="package-update-url" type="url" maxlength="2048" value="${escapeHtml(appPackage.updateUrl || '')}" aria-label="Link cập nhật ${escapeHtml(appPackage.id)}"></td>
         <td data-label="Key đã gắn">${(appPackage.assignedKeys || []).length ? appPackage.assignedKeys.map(key => `<div class="mono-cell">${escapeHtml(key)}</div>`).join('') : '—'}</td>
         <td data-label="Gắn / bỏ key"><input class="package-key" placeholder="Nhập key" aria-label="Key cho gói ${escapeHtml(appPackage.id)}"><div class="toolbar-actions"><button class="btn secondary" onclick="assignPackageKey(this,false)">Gắn</button><button class="btn secondary" onclick="assignPackageKey(this,true)">Bỏ</button></div></td>
-        <td data-label="Thao tác"><div class="toolbar-actions"><button class="btn secondary" onclick="savePackage(this)">Lưu</button><button class="btn ${appPackage.enabled ? 'danger' : ''}" data-enabled="${appPackage.enabled}" onclick="togglePackage(this)">${appPackage.enabled ? 'Tắt gói' : 'Bật gói'}</button></div></td>
+        <td data-label="Thao tác"><div class="toolbar-actions"><button class="btn secondary" onclick="savePackage(this)">Lưu &amp; gửi tin nhắn</button><button class="btn ${appPackage.enabled ? 'danger' : ''}" data-enabled="${appPackage.enabled}" onclick="togglePackage(this)">${appPackage.enabled ? 'Vô hiệu hóa gói' : 'Bật gói'}</button></div></td>
       </tr>`).join('')}
     </tbody></table>`;
   } catch (error) {
@@ -806,7 +806,7 @@ async function createPackage() {
     $('packageNewName').value = '';
     $('packageNewMessage').value = '';
     $('packageNewUpdateUrl').value = '';
-    await loadPackages();
+    await Promise.all([loadPackages(), loadActivePackages()]);
   }
 }
 
@@ -822,7 +822,10 @@ async function savePackage(button) {
     body: JSON.stringify(body)
   });
   showOut($('packagesActionOut'), data, ok && data.success);
-  if (ok && data.success) await loadPackages();
+  if (ok && data.success) {
+    showOut($('packagesActionOut'), 'Đã cập nhật nội dung. App sẽ nhận tin nhắn ở lần kiểm tra API kế tiếp.', true);
+    await loadPackages();
+  }
 }
 
 async function togglePackage(button) {
@@ -838,7 +841,9 @@ async function togglePackage(button) {
     body: JSON.stringify({ enabled })
   });
   showOut($('packagesActionOut'), data, ok && data.success);
-  if (ok && data.success) await loadPackages();
+  if (ok && data.success) {
+    await Promise.all([loadPackages(), loadActivePackages()]);
+  }
 }
 
 async function assignPackageKey(button, remove) {
