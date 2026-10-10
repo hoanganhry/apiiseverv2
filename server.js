@@ -12,7 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const udidRoutes = require('./udid-routes');
-app.use(udidRoutes('https://sever-0i55.onrender.com')); // domain thật của bạn
+app.use(udidRoutes(process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com'));
 /* ================= CONSTANTS ================= */
 const PORT = process.env.PORT || 10000;
 const DATA_DIR = process.env.DATA_DIR || __dirname;
