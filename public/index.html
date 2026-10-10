@@ -468,7 +468,7 @@
       <form class="panel package-create-dialog" onsubmit="event.preventDefault();createPackage()">
         <header><h2>Tạo package mới</h2></header>
         <div class="grid">
-          <div class="field"><label>Mã package</label><input id="packageNewId" maxlength="64" placeholder="ios-v2" required></div>
+          <div class="field"><label>Mã package</label><input id="packageNewId" maxlength="64" placeholder="ios-v2" required><small class="hint">1–64 ký tự: chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.</small></div>
           <div class="field"><label>Tên package</label><input id="packageNewName" maxlength="80" placeholder="Ứng dụng iOS v2" required></div>
           <div class="field"><label>Tin nhắn gửi đến app</label><textarea id="packageNewMessage" maxlength="500" placeholder="Thông báo cập nhật hoặc bảo trì"></textarea></div>
           <div class="field"><label>Link cập nhật</label><input id="packageNewUpdateUrl" type="url" maxlength="2048" placeholder="https://..."></div>

@@ -1252,14 +1252,25 @@ app.post('/api/admin/packages', async (req, res) => {
     const { id, name, message = '', updateUrl = '' } = req.body || {};
     const packageId = typeof id === 'string' ? id.trim() : '';
     const packageName = typeof name === 'string' ? name.trim() : '';
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,63}$/.test(packageId) ||
-        !packageName || packageName.length > 80 ||
-        typeof message !== 'string' || message.length > 500 ||
-        typeof updateUrl !== 'string' || updateUrl.length > 2048) {
-      return res.status(400).json({ success: false, message: 'Invalid package ID, name, message or update URL' });
+    const packageMessage = typeof message === 'string' ? message.trim() : null;
+    const packageUpdateUrl = typeof updateUrl === 'string' ? updateUrl.trim() : null;
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(packageId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mã package phải dài 1–64 ký tự, bắt đầu bằng chữ hoặc số và chỉ dùng chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.'
+      });
     }
-    if (updateUrl && !/^https?:\/\/\S+$/i.test(updateUrl)) {
-      return res.status(400).json({ success: false, message: 'Update URL must use http or https' });
+    if (!packageName || packageName.length > 80) {
+      return res.status(400).json({ success: false, message: 'Tên package phải có từ 1–80 ký tự.' });
+    }
+    if (packageMessage === null || packageMessage.length > 500) {
+      return res.status(400).json({ success: false, message: 'Tin nhắn package tối đa 500 ký tự.' });
+    }
+    if (packageUpdateUrl === null || packageUpdateUrl.length > 2048) {
+      return res.status(400).json({ success: false, message: 'Link cập nhật tối đa 2048 ký tự.' });
+    }
+    if (packageUpdateUrl && !/^https?:\/\/\S+$/i.test(packageUpdateUrl)) {
+      return res.status(400).json({ success: false, message: 'Link cập nhật phải bắt đầu bằng http:// hoặc https://.' });
     }
 
     const packages = await loadPackages();
@@ -1270,8 +1281,8 @@ app.post('/api/admin/packages', async (req, res) => {
       id: packageId,
       name: packageName,
       enabled: true,
-      message: message.trim(),
-      updateUrl: updateUrl.trim(),
+      message: packageMessage,
+      updateUrl: packageUpdateUrl,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
