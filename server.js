@@ -1135,25 +1135,6 @@ function savePackages(packages) {
   return safeSaveJSON(PACKAGES_FILE, packages);
 }
 
-function requirePackageAdmin(req, res, next) {
-  const expected = process.env.PACKAGE_ADMIN_TOKEN;
-  if (!expected) {
-    return res.status(503).json({
-      success: false,
-      message: 'Package administration is unavailable: configure PACKAGE_ADMIN_TOKEN on the server'
-    });
-  }
-
-  const supplied = req.get('x-admin-token') || '';
-  const expectedBuffer = Buffer.from(expected);
-  const suppliedBuffer = Buffer.from(supplied);
-  if (expectedBuffer.length !== suppliedBuffer.length ||
-      !crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)) {
-    return res.status(401).json({ success: false, message: 'Invalid administrator token' });
-  }
-  next();
-}
-
 app.get('/api/app/packages/:packageId', async (req, res) => {
   try {
     const packages = await loadPackages();
@@ -1250,7 +1231,7 @@ app.post('/api/app/check-package', async (req, res) => {
   }
 });
 
-app.get('/api/admin/packages', requirePackageAdmin, async (req, res) => {
+app.get('/api/admin/packages', async (req, res) => {
   try {
     const [packages, keys] = await Promise.all([loadPackages(), loadKeys()]);
     res.json({
@@ -1266,7 +1247,7 @@ app.get('/api/admin/packages', requirePackageAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/packages', requirePackageAdmin, async (req, res) => {
+app.post('/api/admin/packages', async (req, res) => {
   try {
     const { id, name, message = '', updateUrl = '' } = req.body || {};
     const packageId = typeof id === 'string' ? id.trim() : '';
@@ -1306,7 +1287,7 @@ app.post('/api/admin/packages', requirePackageAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/packages/:packageId', requirePackageAdmin, async (req, res) => {
+app.patch('/api/admin/packages/:packageId', async (req, res) => {
   try {
     const packages = await loadPackages();
     const appPackage = packages.find(item => item.id === req.params.packageId);
@@ -1344,7 +1325,7 @@ app.patch('/api/admin/packages/:packageId', requirePackageAdmin, async (req, res
   }
 });
 
-app.post('/api/admin/packages/:packageId/keys', requirePackageAdmin, async (req, res) => {
+app.post('/api/admin/packages/:packageId/keys', async (req, res) => {
   try {
     const packageId = req.params.packageId;
     const { key, remove = false } = req.body || {};

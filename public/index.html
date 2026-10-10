@@ -272,6 +272,24 @@
   .table-footer select{padding:4px 22px 4px 6px; font-size:11px;}
   .table-footer button{border:0; background:transparent; color:#7d8797; cursor:pointer; font-size:18px;}
   .table-footer button:disabled{opacity:.35; cursor:default;}
+  .package-list-panel h2{margin-bottom:16px;}
+  .package-toolbar{margin:14px 0 8px;}
+  .package-toolbar .toolbar-actions button{background:transparent; border:0; color:var(--amber); box-shadow:none;}
+  .package-toolbar .toolbar-actions button:hover{background:#f3f4ff;}
+  .package-columns-menu{position:absolute; z-index:5; padding:10px 12px; background:#fff; border:1px solid #e3e6ee; border-radius:6px; box-shadow:0 4px 14px rgba(32,43,68,.12);}
+  .package-columns-menu label{display:flex; align-items:center; gap:7px; padding:4px 0; color:#596477; font-size:12px; white-space:nowrap;}
+  .package-columns-menu input{accent-color:var(--amber);}
+  .package-table-wrap{min-height:150px;}
+  .package-table-wrap table{min-width:980px;}
+  .package-table-wrap th{border-right:1px solid #e3e6ee;}
+  .package-table-wrap td input{min-width:130px; width:100%; padding:7px 8px;}
+  .package-table-wrap .package-key{margin-bottom:5px;}
+  .package-create-modal{position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(20,28,45,.42);}
+  .package-create-modal[hidden]{display:none;}
+  .package-create-dialog{width:min(620px,100%); max-height:calc(100vh - 40px); overflow:auto; margin:0; box-shadow:0 16px 50px rgba(22,32,50,.2);}
+  .package-create-dialog header{position:static; height:auto; background:transparent; box-shadow:none; padding:0; margin-bottom:16px;}
+  .package-create-dialog header h2{margin:0;}
+  .package-modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px;}
   table{min-width:650px; margin-top:0; font:11px var(--sans);}
   th,td{padding:11px 10px; border-bottom:1px solid #edf0f5;}
   th.select-column,td.select-column{width:34px; min-width:34px; text-align:center;}
@@ -420,40 +438,46 @@
   </section>
 
   <section class="tab-panel" id="tab-packages" style="display:none;">
-    <div class="panel">
-      <h2>Quản lý gói ứng dụng</h2>
-      <p class="sub">Tạo gói để xuất hiện trong danh sách chọn lúc tạo key. Bạn có thể bật/tắt gói và cập nhật thông báo mà app sẽ nhận ở lần kiểm tra API kế tiếp.</p>
-      <div class="grid">
-        <div class="field">
-          <label>Mã quản trị máy chủ</label>
-          <input type="password" id="packageAdminToken" autocomplete="new-password" placeholder="Nhập PACKAGE_ADMIN_TOKEN">
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <div class="toolbar-actions">
-            <button class="btn secondary" onclick="savePackageAdminToken()">Dùng trong phiên</button>
-            <button class="btn secondary" onclick="clearPackageAdminToken()">Xóa mã</button>
-            <button class="btn secondary" onclick="loadPackages()">Refresh</button>
-          </div>
-        </div>
+    <div class="panel package-list-panel">
+      <h2>Danh sách packages</h2>
+      <div class="toolbar-actions">
+        <button class="btn" onclick="openPackageCreateModal()">＋ Tạo gói</button>
       </div>
-      <div class="hint">Mã chỉ được giữ trong sessionStorage của tab này. Đặt biến môi trường <code>PACKAGE_ADMIN_TOKEN</code> trên máy chủ.</div>
+      <div class="table-toolbar package-toolbar">
+        <div class="toolbar-actions">
+          <button class="btn secondary" onclick="loadPackages()">⟳ Refresh</button>
+          <div style="position:relative;">
+            <button class="btn secondary" onclick="togglePackageColumns()">▥ Columns</button>
+            <div class="package-columns-menu" id="packageColumnsMenu" hidden></div>
+          </div>
+          <button class="btn secondary" onclick="exportTable('packageTable','danh-sach-packages.csv')">⇩ Export</button>
+        </div>
+        <input class="table-search" id="packagesSearch" type="search" placeholder="Search..." oninput="filterPackagesTable()">
+      </div>
+      <div id="packagesTableWrap" class="table-wrap package-table-wrap"><div class="empty-state">Đang tải danh sách packages…</div></div>
+      <div class="table-footer">
+        <label>Rows per page: <select id="packagesPageSize" onchange="setPackagesPageSize()"><option>10</option><option>25</option><option>50</option></select></label>
+        <span id="packagesPageInfo">0–0 of 0</span>
+        <button id="packagesPrev" onclick="changePackagesPage(-1)" aria-label="Trang trước">‹</button>
+        <button id="packagesNext" onclick="changePackagesPage(1)" aria-label="Trang sau">›</button>
+      </div>
+      <div class="hint">Lưu tin nhắn để app nhận nội dung ở lần kiểm tra API kế tiếp. App cần kiểm tra khi mở và định kỳ; đây không phải thông báo đẩy khi app đang đóng.</div>
       <div id="packagesActionOut" class="out" style="display:none;"></div>
     </div>
-    <div class="panel">
-      <h2>Tạo gói mới</h2>
-      <div class="grid">
-        <div class="field"><label>Mã gói (dùng trong app)</label><input id="packageNewId" maxlength="64" placeholder="ios-v2"></div>
-        <div class="field"><label>Tên gói</label><input id="packageNewName" maxlength="80" placeholder="Ứng dụng iOS v2"></div>
-        <div class="field"><label>Tin nhắn gửi đến app</label><input id="packageNewMessage" maxlength="500" placeholder="Thông báo bảo trì, cập nhật hoặc ngừng hỗ trợ..."></div>
-        <div class="field"><label>Link cập nhật (không bắt buộc)</label><input id="packageNewUpdateUrl" type="url" maxlength="2048" placeholder="https://..."></div>
-      </div>
-      <div class="row" style="margin-top:16px;"><button class="btn" onclick="createPackage()">Tạo gói</button></div>
-    </div>
-    <div class="panel">
-      <h2>Gói hiện có</h2>
-      <div id="packagesTableWrap" class="table-wrap"><div class="empty-state">Nhập mã quản trị để tải gói.</div></div>
-      <div class="hint">Nút “Lưu &amp; gửi tin nhắn” cập nhật nội dung mà app nhận ở lần gọi <code>POST /api/app/check-package</code> tiếp theo. App cần kiểm tra khi mở và định kỳ, rồi tự hiện tin nhắn. Khi tắt gói, API trả <code>allowed:false</code> để app khóa tính năng an toàn. Đây không phải thông báo đẩy và không gửi được khi app chưa gọi API/đang đóng.</div>
+    <div class="package-create-modal" id="packageCreateModal" hidden onclick="if(event.target===this)closePackageCreateModal()">
+      <form class="panel package-create-dialog" onsubmit="event.preventDefault();createPackage()">
+        <header><h2>Tạo package mới</h2></header>
+        <div class="grid">
+          <div class="field"><label>Mã package</label><input id="packageNewId" maxlength="64" placeholder="ios-v2" required></div>
+          <div class="field"><label>Tên package</label><input id="packageNewName" maxlength="80" placeholder="Ứng dụng iOS v2" required></div>
+          <div class="field"><label>Tin nhắn gửi đến app</label><textarea id="packageNewMessage" maxlength="500" placeholder="Thông báo cập nhật hoặc bảo trì"></textarea></div>
+          <div class="field"><label>Link cập nhật</label><input id="packageNewUpdateUrl" type="url" maxlength="2048" placeholder="https://..."></div>
+        </div>
+        <div class="package-modal-actions">
+          <button class="btn secondary" type="button" onclick="closePackageCreateModal()">Hủy</button>
+          <button class="btn" type="submit">Tạo gói</button>
+        </div>
+      </form>
     </div>
   </section>
 
@@ -660,6 +684,17 @@
 const $ = (id) => document.getElementById(id);
 const tablePages = { keys: 1, devices: 1 };
 const selectedKeyCodes = new Set();
+let packagesPage = 1;
+const packageColumns = [
+  ['name', 'Tên package'],
+  ['id', 'Mã package'],
+  ['message', 'Tin nhắn'],
+  ['update', 'Link cập nhật'],
+  ['keys', 'Key đã gắn'],
+  ['status', 'Trạng thái'],
+  ['actions', 'Thao tác']
+];
+const visiblePackageColumns = new Set(packageColumns.map(([id]) => id));
 
 /* ---------- tabs ---------- */
 function switchTab(tab) {
@@ -680,7 +715,7 @@ document.querySelectorAll('#tabs button').forEach(btn => {
 function refreshVisibleList() {
   if ($('tab-devices').style.display !== 'none') loadUdidDevices();
   if ($('tab-keys').style.display !== 'none') loadAllKeys();
-  if ($('tab-packages').style.display !== 'none' && sessionStorage.getItem('packageAdminToken')) loadPackages();
+  if ($('tab-packages').style.display !== 'none') loadPackages();
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -731,62 +766,51 @@ async function loadActivePackages() {
   }
 }
 
-async function packageAdminApi(path, opts = {}) {
-  const headers = { ...(opts.headers || {}), 'x-admin-token': sessionStorage.getItem('packageAdminToken') || '' };
-  return api(path, { ...opts, headers });
-}
-
-function savePackageAdminToken() {
-  const token = $('packageAdminToken').value.trim();
-  if (!token) {
-    showOut($('packagesActionOut'), 'Nhập mã quản trị trước.', false);
-    return;
-  }
-  sessionStorage.setItem('packageAdminToken', token);
-  showOut($('packagesActionOut'), 'Đã lưu mã quản trị trong phiên tab này.', true);
-  loadPackages();
-}
-
-function clearPackageAdminToken() {
-  sessionStorage.removeItem('packageAdminToken');
-  $('packageAdminToken').value = '';
-  $('packagesTableWrap').innerHTML = '<div class="empty-state">Nhập mã quản trị để tải gói.</div>';
-  showOut($('packagesActionOut'), 'Đã xóa mã quản trị khỏi phiên tab.', true);
-}
-
 async function loadPackages() {
   const wrap = $('packagesTableWrap');
-  if (!sessionStorage.getItem('packageAdminToken')) {
-    wrap.innerHTML = '<div class="empty-state">Nhập mã quản trị máy chủ để xem và quản lý gói.</div>';
-    return;
-  }
   try {
-    const { ok, data } = await packageAdminApi('/api/admin/packages');
+    const { ok, data } = await api('/api/admin/packages');
     if (!ok || !data.success) {
       wrap.innerHTML = '<div class="empty-state">Không tải được danh sách gói.</div>';
       showOut($('packagesActionOut'), data, false);
       return;
     }
-    if (!data.packages.length) {
-      wrap.innerHTML = '<div class="empty-state">Chưa có gói ứng dụng.</div>';
-      return;
-    }
-    wrap.innerHTML = `<table><thead><tr><th>Mã / Tên</th><th>Trạng thái</th><th>Thông báo</th><th>Link cập nhật</th><th>Key đã gắn</th><th>Gắn / bỏ key</th><th>Thao tác</th></tr></thead><tbody>
+    wrap.innerHTML = `<table id="packageTable"><thead><tr>
+      ${packageColumns.map(([id, label]) => `<th data-column="${id}">${label}</th>`).join('')}
+    </tr></thead><tbody>${data.packages.length ? `
       ${data.packages.map(appPackage => `<tr data-package-id="${escapeHtml(appPackage.id)}">
-        <td data-label="Mã / Tên"><strong>${escapeHtml(appPackage.id)}</strong><br>${escapeHtml(appPackage.name)}</td>
-        <td data-label="Trạng thái"><span class="tag ${appPackage.enabled ? 'live' : 'expired'}">${appPackage.enabled ? 'đang bật' : 'đã tắt'}</span></td>
-        <td data-label="Thông báo"><input class="package-message" maxlength="500" value="${escapeHtml(appPackage.message || '')}" aria-label="Thông báo cho ${escapeHtml(appPackage.id)}"></td>
-        <td data-label="Link cập nhật"><input class="package-update-url" type="url" maxlength="2048" value="${escapeHtml(appPackage.updateUrl || '')}" aria-label="Link cập nhật ${escapeHtml(appPackage.id)}"></td>
-        <td data-label="Key đã gắn">${(appPackage.assignedKeys || []).length ? appPackage.assignedKeys.map(key => `<div class="mono-cell">${escapeHtml(key)}</div>`).join('') : '—'}</td>
-        <td data-label="Gắn / bỏ key"><input class="package-key" placeholder="Nhập key" aria-label="Key cho gói ${escapeHtml(appPackage.id)}"><div class="toolbar-actions"><button class="btn secondary" onclick="assignPackageKey(this,false)">Gắn</button><button class="btn secondary" onclick="assignPackageKey(this,true)">Bỏ</button></div></td>
-        <td data-label="Thao tác"><div class="toolbar-actions"><button class="btn secondary" onclick="savePackage(this)">Lưu &amp; gửi tin nhắn</button><button class="btn ${appPackage.enabled ? 'danger' : ''}" data-enabled="${appPackage.enabled}" onclick="togglePackage(this)">${appPackage.enabled ? 'Vô hiệu hóa gói' : 'Bật gói'}</button></div></td>
+        <td data-label="Tên package" data-column="name">${escapeHtml(appPackage.name)}</td>
+        <td data-label="Mã package" data-column="id"><span class="mono-cell">${escapeHtml(appPackage.id)}</span></td>
+        <td data-label="Tin nhắn" data-column="message"><textarea class="package-message" maxlength="500" aria-label="Tin nhắn cho ${escapeHtml(appPackage.id)}">${escapeHtml(appPackage.message || '')}</textarea></td>
+        <td data-label="Link cập nhật" data-column="update"><input class="package-update-url" type="url" maxlength="2048" value="${escapeHtml(appPackage.updateUrl || '')}" aria-label="Link cập nhật ${escapeHtml(appPackage.id)}"></td>
+        <td data-label="Key đã gắn" data-column="keys"><div>${(appPackage.assignedKeys || []).length ? appPackage.assignedKeys.map(key => `<div class="mono-cell">${escapeHtml(key)}</div>`).join('') : '—'}</div><input class="package-key" placeholder="Nhập key" aria-label="Key cho gói ${escapeHtml(appPackage.id)}"><div class="toolbar-actions"><button class="btn secondary" onclick="assignPackageKey(this,false)">Gắn</button><button class="btn secondary" onclick="assignPackageKey(this,true)">Bỏ</button></div></td>
+        <td data-label="Trạng thái" data-column="status"><span class="tag ${appPackage.enabled ? 'live' : 'expired'}">${appPackage.enabled ? 'đang bật' : 'đã tắt'}</span></td>
+        <td data-label="Thao tác" data-column="actions"><div class="toolbar-actions"><button class="btn secondary" onclick="savePackage(this)">Lưu &amp; gửi tin nhắn</button><button class="btn ${appPackage.enabled ? 'danger' : ''}" data-enabled="${appPackage.enabled}" onclick="togglePackage(this)">${appPackage.enabled ? 'Vô hiệu hóa gói' : 'Bật gói'}</button></div></td>
       </tr>`).join('')}
-    </tbody></table>`;
+    ` : `<tr><td colspan="${packageColumns.length}" class="empty-state">No rows</td></tr>`}</tbody></table>`;
+    data.packages.forEach(appPackage => {
+      const row = wrap.querySelector(`[data-package-id="${CSS.escape(appPackage.id)}"]`);
+      if (row) {
+        row.dataset.search = [appPackage.name, appPackage.id, appPackage.message, appPackage.updateUrl,
+          ...(appPackage.assignedKeys || []), appPackage.enabled ? 'đang bật' : 'đã tắt'].join(' ').toLocaleLowerCase('vi');
+      }
+    });
+    applyPackageColumnVisibility();
+    filterPackagesTable();
   } catch (error) {
     console.error('Không thể tải gói ứng dụng:', error);
     wrap.innerHTML = '<div class="empty-state">Lỗi kết nối khi tải gói ứng dụng.</div>';
     showOut($('packagesActionOut'), error.message, false);
   }
+}
+
+function openPackageCreateModal() {
+  $('packageCreateModal').hidden = false;
+  $('packageNewId').focus();
+}
+
+function closePackageCreateModal() {
+  $('packageCreateModal').hidden = true;
 }
 
 async function createPackage() {
@@ -796,7 +820,7 @@ async function createPackage() {
     message: $('packageNewMessage').value.trim(),
     updateUrl: $('packageNewUpdateUrl').value.trim()
   };
-  const { ok, data } = await packageAdminApi('/api/admin/packages', {
+  const { ok, data } = await api('/api/admin/packages', {
     method: 'POST',
     body: JSON.stringify(body)
   });
@@ -806,8 +830,95 @@ async function createPackage() {
     $('packageNewName').value = '';
     $('packageNewMessage').value = '';
     $('packageNewUpdateUrl').value = '';
+    closePackageCreateModal();
     await Promise.all([loadPackages(), loadActivePackages()]);
   }
+}
+
+function filterPackagesTable() {
+  const table = $('packageTable');
+  if (!table) {
+    updatePackagesPage([]);
+    return;
+  }
+  const query = $('packagesSearch').value.trim().toLocaleLowerCase('vi');
+  const rows = [...table.querySelectorAll('tbody tr[data-package-id]')];
+  rows.forEach(row => {
+    row.dataset.filteredOut = String(!row.dataset.search.includes(query));
+  });
+  packagesPage = 1;
+  renderPackagesPage(rows);
+}
+
+function renderPackagesPage(rows) {
+  const pageSize = Number($('packagesPageSize').value) || 10;
+  const matchingRows = rows.filter(row => row.dataset.filteredOut !== 'true');
+  const pageCount = Math.max(1, Math.ceil(matchingRows.length / pageSize));
+  packagesPage = Math.min(packagesPage, pageCount);
+  const start = (packagesPage - 1) * pageSize;
+  const rowIndexes = new Map(matchingRows.map((row, index) => [row, index]));
+  rows.forEach(row => {
+    const index = rowIndexes.get(row);
+    row.hidden = index < start || index >= start + pageSize;
+  });
+  const table = $('packageTable');
+  const emptyRow = table.querySelector('tbody tr:not([data-package-id])');
+  if (emptyRow) emptyRow.hidden = rows.length > 0;
+  let noResultsRow = table.querySelector('tbody tr[data-no-results]');
+  if (!noResultsRow) {
+    noResultsRow = document.createElement('tr');
+    noResultsRow.dataset.noResults = 'true';
+    noResultsRow.innerHTML = `<td colspan="${packageColumns.length}" class="empty-state">Không tìm thấy package phù hợp.</td>`;
+    table.querySelector('tbody').append(noResultsRow);
+  }
+  noResultsRow.hidden = rows.length === 0 || matchingRows.length > 0;
+  updatePackagesPage(matchingRows, pageSize);
+}
+
+function updatePackagesPage(matchingRows, pageSize = Number($('packagesPageSize').value) || 10) {
+  const count = matchingRows.length;
+  const first = count ? (packagesPage - 1) * pageSize + 1 : 0;
+  const last = count ? Math.min(packagesPage * pageSize, count) : 0;
+  $('packagesPageInfo').textContent = `${first}–${last} of ${count}`;
+  $('packagesPrev').disabled = packagesPage <= 1;
+  $('packagesNext').disabled = !pageSize || last >= count;
+}
+
+function setPackagesPageSize() {
+  packagesPage = 1;
+  filterPackagesTable();
+}
+
+function changePackagesPage(offset) {
+  packagesPage = Math.max(1, packagesPage + offset);
+  const table = $('packageTable');
+  if (table) renderPackagesPage([...table.querySelectorAll('tbody tr[data-package-id]')]);
+}
+
+function togglePackageColumns() {
+  const menu = $('packageColumnsMenu');
+  menu.hidden = !menu.hidden;
+  if (!menu.hidden) {
+    menu.innerHTML = packageColumns.map(([id, label]) =>
+      `<label><input type="checkbox" ${visiblePackageColumns.has(id) ? 'checked' : ''} onchange="setPackageColumnVisibility('${id}',this.checked)"> ${label}</label>`
+    ).join('');
+  }
+}
+
+function setPackageColumnVisibility(column, visible) {
+  if (visible) visiblePackageColumns.add(column);
+  else visiblePackageColumns.delete(column);
+  applyPackageColumnVisibility();
+}
+
+function applyPackageColumnVisibility() {
+  const table = $('packageTable');
+  if (!table) return;
+  packageColumns.forEach(([id]) => {
+    table.querySelectorAll(`[data-column="${id}"]`).forEach(cell => {
+      cell.hidden = !visiblePackageColumns.has(id);
+    });
+  });
 }
 
 async function savePackage(button) {
@@ -817,7 +928,7 @@ async function savePackage(button) {
     message: row.querySelector('.package-message').value,
     updateUrl: row.querySelector('.package-update-url').value
   };
-  const { ok, data } = await packageAdminApi(`/api/admin/packages/${encodeURIComponent(packageId)}`, {
+  const { ok, data } = await api(`/api/admin/packages/${encodeURIComponent(packageId)}`, {
     method: 'PATCH',
     body: JSON.stringify(body)
   });
@@ -836,7 +947,7 @@ async function togglePackage(button) {
     ? `Bật lại gói "${packageId}"?`
     : `Tắt gói "${packageId}"? App đã dùng gói này sẽ nhận thông báo và phải xử lý trạng thái khóa.`;
   if (!confirm(prompt)) return;
-  const { ok, data } = await packageAdminApi(`/api/admin/packages/${encodeURIComponent(packageId)}`, {
+  const { ok, data } = await api(`/api/admin/packages/${encodeURIComponent(packageId)}`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled })
   });
@@ -854,7 +965,7 @@ async function assignPackageKey(button, remove) {
     showOut($('packagesActionOut'), 'Nhập key cần gắn hoặc bỏ khỏi gói.', false);
     return;
   }
-  const { ok, data } = await packageAdminApi(`/api/admin/packages/${encodeURIComponent(packageId)}/keys`, {
+  const { ok, data } = await api(`/api/admin/packages/${encodeURIComponent(packageId)}/keys`, {
     method: 'POST',
     body: JSON.stringify({ key, remove })
   });
