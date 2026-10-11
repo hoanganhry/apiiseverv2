@@ -290,6 +290,21 @@
   .package-create-dialog header{position:static; height:auto; background:transparent; box-shadow:none; padding:0; margin-bottom:16px;}
   .package-create-dialog header h2{margin:0;}
   .package-modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px;}
+  .create-modal-overlay,.created-keys-modal{position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(25,34,52,.48);}
+  .create-modal-overlay[hidden],.created-keys-modal[hidden]{display:none;}
+  .create-dialog,.created-keys-dialog{width:min(760px,100%); max-height:calc(100vh - 40px); overflow:auto; background:#fff; border:1px solid #e8eaf0; border-radius:8px; padding:20px; box-shadow:0 16px 50px rgba(22,32,50,.22);}
+  .create-dialog-header,.created-keys-header{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px;}
+  .create-dialog-header h2,.created-keys-header h2{margin:0; color:#596477; font-size:17px; font-weight:500;}
+  .create-dialog-header p,.created-keys-header p{margin:5px 0 0; color:#9099aa; font-size:12px;}
+  .create-mode-switch{display:flex; gap:8px; margin-bottom:14px;}
+  .create-form-panel[hidden]{display:none!important;}
+  .create-dialog .panel{margin:0; box-shadow:none;}
+  .created-keys-list{display:grid; gap:8px; max-height:min(52vh,480px); overflow:auto; margin:14px 0;}
+  .created-key-row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #e8eaf0; border-radius:6px; background:#fafbfe;}
+  .created-key-code{min-width:0; color:#39445a; font:13px var(--mono); overflow-wrap:anywhere;}
+  .created-keys-actions{display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-top:16px;}
+  .created-keys-summary{color:#596477; font-size:13px;}
+  body.modal-open{overflow:hidden;}
   table{min-width:650px; margin-top:0; font:11px var(--sans);}
   th,td{padding:11px 10px; border-bottom:1px solid #edf0f5;}
   th.select-column,td.select-column{width:34px; min-width:34px; text-align:center;}
@@ -337,6 +352,9 @@
     tr{display:table-row; padding:0; border:0;}
     td{display:table-cell; padding:9px 8px;}
     td::before{content:none;}
+    .create-modal-overlay,.created-keys-modal{padding:10px;}
+    .create-dialog,.created-keys-dialog{max-height:calc(100vh - 20px); padding:14px;}
+    .created-key-row{align-items:flex-start;}
   }
 </style>
 </head>
@@ -511,7 +529,20 @@
 
   <!-- CREATE KEY -->
   <section class="tab-panel" id="tab-create" style="display:none;">
-    <div class="panel">
+    <div class="create-modal-overlay" id="createModal" hidden onclick="if(event.target===this)closeCreateModal()">
+      <div class="create-dialog" role="dialog" aria-modal="true" aria-labelledby="createModalTitle">
+        <div class="create-dialog-header">
+          <div>
+            <h2 id="createModalTitle">Tạo key</h2>
+            <p>Chọn cách tạo key, điền thông tin rồi sao chép kết quả.</p>
+          </div>
+          <button class="btn secondary" type="button" onclick="closeCreateModal()" aria-label="Đóng">Đóng</button>
+        </div>
+        <div class="create-mode-switch" role="group" aria-label="Kiểu tạo key">
+          <button class="btn" id="singleCreateTab" type="button" onclick="setCreateMode('single')">Tạo một key</button>
+          <button class="btn secondary" id="bulkCreateTab" type="button" onclick="setCreateMode('bulk')">Tạo hàng loạt</button>
+        </div>
+        <div class="panel create-form-panel" id="singleCreatePanel">
       <h2>Tạo key</h2>
       <p class="sub">Tạo một license key mới. Truy cập public — không cần đăng nhập.</p>
       <div class="grid">
@@ -554,9 +585,9 @@
         <button class="btn" onclick="createKey()">Tạo key</button>
       </div>
       <div id="createOut" class="out" style="display:none;"></div>
-    </div>
+        </div>
 
-    <div class="panel">
+        <div class="panel create-form-panel" id="bulkCreatePanel" hidden>
       <h2>Tạo hàng loạt</h2>
       <p class="sub">Sinh nhiều key cùng lúc (1–100).</p>
       <div class="grid">
@@ -599,8 +630,27 @@
         <button class="btn secondary" onclick="bulkCreateKeys()">Tạo hàng loạt</button>
       </div>
       <div id="bulkOut" class="out" style="display:none;"></div>
+        </div>
+      </div>
     </div>
   </section>
+
+  <div class="created-keys-modal" id="createdKeysModal" hidden onclick="if(event.target===this)closeCreatedKeysModal()">
+    <div class="created-keys-dialog" role="dialog" aria-modal="true" aria-labelledby="createdKeysTitle">
+      <div class="created-keys-header">
+        <div>
+          <h2 id="createdKeysTitle">Tạo key thành công</h2>
+          <p id="createdKeysSummary" class="created-keys-summary"></p>
+        </div>
+        <button class="btn secondary" type="button" onclick="closeCreatedKeysModal()" aria-label="Đóng">Đóng</button>
+      </div>
+      <div class="created-keys-list" id="createdKeysList"></div>
+      <div class="created-keys-actions">
+        <button class="btn secondary" type="button" onclick="copyCreatedKeys()">Sao chép tất cả</button>
+        <button class="btn" type="button" onclick="closeCreatedKeysModal()">Hoàn tất</button>
+      </div>
+    </div>
+  </div>
 
   <!-- MANAGE KEY -->
   <section class="tab-panel" id="tab-manage" style="display:none;">
@@ -702,12 +752,104 @@ const visiblePackageColumns = new Set(packageColumns.map(([id]) => id));
 function switchTab(tab) {
   document.querySelectorAll('#tabs button').forEach(button => button.classList.toggle('active', button.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(panel => {
-    panel.style.display = panel.id === 'tab-' + tab ? 'block' : 'none';
+    panel.style.display = panel.id === 'tab-' + tab && tab !== 'create' ? 'block' : 'none';
   });
+  if (tab === 'create') {
+    $('tab-create').style.display = 'block';
+    openCreateModal();
+    loadActivePackages();
+    return;
+  }
   if (tab === 'devices') loadUdidDevices();
   if (tab === 'keys') loadAllKeys();
   if (tab === 'packages') loadPackages();
-  if (tab === 'create') loadActivePackages();
+}
+
+function openCreateModal() {
+  $('createModal').hidden = false;
+  document.body.classList.add('modal-open');
+  setCreateMode('single');
+  $('ck_duration').focus();
+}
+
+function closeCreateModal() {
+  $('createModal').hidden = true;
+  document.body.classList.remove('modal-open');
+  switchTab('overview');
+}
+
+function setCreateMode(mode) {
+  const single = mode === 'single';
+  $('singleCreatePanel').hidden = !single;
+  $('bulkCreatePanel').hidden = single;
+  $('singleCreateTab').classList.toggle('secondary', !single);
+  $('bulkCreateTab').classList.toggle('secondary', single);
+  $(single ? 'ck_duration' : 'bk_count').focus();
+}
+
+function openCreatedKeysModal(title, summary, keys) {
+  const list = $('createdKeysList');
+  list.replaceChildren();
+  keys.forEach(key => {
+    const row = document.createElement('div');
+    row.className = 'created-key-row';
+    const code = document.createElement('code');
+    code.className = 'created-key-code';
+    code.textContent = key;
+    const copyButton = document.createElement('button');
+    copyButton.className = 'btn secondary';
+    copyButton.type = 'button';
+    copyButton.textContent = 'Sao chép';
+    copyButton.addEventListener('click', () => copyText(key, copyButton));
+    row.append(code, copyButton);
+    list.append(row);
+  });
+  $('createdKeysTitle').textContent = title;
+  $('createdKeysSummary').textContent = summary;
+  $('createdKeysModal').hidden = false;
+  document.body.classList.add('modal-open');
+  $('createdKeysModal').querySelector('button').focus();
+}
+
+function closeCreatedKeysModal() {
+  $('createdKeysModal').hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function copyCreatedKeys() {
+  const keys = [...$('createdKeysList').querySelectorAll('.created-key-code')].map(code => code.textContent);
+  copyText(keys.join('\n'), $('createdKeysModal').querySelector('.created-keys-actions .btn'));
+}
+
+async function copyText(text, button) {
+  try {
+    let copied = false;
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+    if (!copied) {
+      const input = document.createElement('textarea');
+      input.value = text;
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.append(input);
+      input.select();
+      copied = document.execCommand('copy');
+      input.remove();
+      if (!copied) throw new Error('Trình duyệt không cho phép sao chép.');
+    }
+    const originalText = button.textContent;
+    button.textContent = 'Đã sao chép';
+    window.setTimeout(() => { button.textContent = originalText; }, 1500);
+  } catch (error) {
+    console.error('Không thể sao chép key:', error);
+    window.alert('Không thể sao chép tự động. Vui lòng chọn và sao chép key thủ công.');
+  }
 }
 
 document.querySelectorAll('#tabs button').forEach(btn => {
@@ -1167,17 +1309,16 @@ async function createKey() {
     customKey: $('ck_custom').value || undefined
   };
   const { ok, data } = await api('/api/create-key', { method: 'POST', body: JSON.stringify(body) });
-  showOut($('createOut'), data, ok && data.success);
-  if (ok && data.success) {
-    $('createOut').textContent = JSON.stringify({
-      ...data,
-      key: data.key?.key_code,
-      expires_at: data.key?.expires_at
-    }, null, 2);
+  if (ok && data.success && data.key?.key_code) {
+    $('createOut').style.display = 'none';
+    closeCreateModal();
+    openCreatedKeysModal('Tạo key thành công', `Gói: ${packageId} · ${data.key.is_permanent ? 'Vĩnh viễn' : 'Hạn: ' + (data.key.expires_at || 'Không xác định')}`, [data.key.key_code]);
     selectedKeyCodes.clear();
     updateKeySelectionSummary();
     loadOverview();
     loadAllKeys();
+  } else {
+    showOut($('createOut'), data, false);
   }
 }
 
@@ -1197,12 +1338,17 @@ async function bulkCreateKeys() {
     type: $('bk_type').value || 'KEY'
   };
   const { ok, data } = await api('/api/bulk-create-keys', { method: 'POST', body: JSON.stringify(body) });
-  showOut($('bulkOut'), data, ok && data.success);
-  if (ok && data.success) {
+  const keys = Array.isArray(data.keys) ? data.keys.map(key => typeof key === 'string' ? key : key.key_code).filter(Boolean) : [];
+  if (ok && data.success && keys.length) {
+    $('bulkOut').style.display = 'none';
+    closeCreateModal();
+    openCreatedKeysModal('Tạo key hàng loạt thành công', `${data.message || `Đã tạo ${keys.length} key`} · Gói: ${packageId}`, keys);
     selectedKeyCodes.clear();
     updateKeySelectionSummary();
     loadOverview();
     loadAllKeys();
+  } else {
+    showOut($('bulkOut'), data, false);
   }
 }
 
