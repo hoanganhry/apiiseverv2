@@ -14,7 +14,66 @@ const app = express();
 const udidRoutes = require('./udid-routes');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com').replace(/\/+$/, '');
 const GET_UDID_PAGE_URL = new URL('/get-key', `${PUBLIC_BASE_URL}/`).toString();
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
+const DASHBOARD_PROTECTED_PATHS = new Set([
+  '/api',
+  '/api/create-key',
+  '/api/bulk-create-keys',
+  '/api/list-keys',
+  '/api/my-stats',
+  '/api/my-api-code',
+  '/api/reset-api-code',
+  '/api/extend-key',
+  '/api/reset-key',
+  '/api/delete-key',
+  '/api/delete-keys',
+  '/api/delete-expired-keys',
+  '/api/udid/list'
+]);
+
+function requiresDashboardPassword(req) {
+  let requestPath;
+  try {
+    requestPath = decodeURIComponent(req.path).toLowerCase().replace(/\/+$/, '') || '/';
+  } catch {
+    return true;
+  }
+  if (['GET', 'HEAD'].includes(req.method) && ['/', '/index.html'].includes(requestPath)) return true;
+  if (requestPath === '/api/admin' || requestPath.startsWith('/api/admin/')) return true;
+  return DASHBOARD_PROTECTED_PATHS.has(requestPath);
+}
+
+function dashboardPasswordAuth(req, res, next) {
+  if (!requiresDashboardPassword(req)) return next();
+  if (!DASHBOARD_PASSWORD) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(503).send('Dashboard is locked. Configure DASHBOARD_PASSWORD on the server.');
+  }
+
+  const authorization = req.get('authorization') || '';
+  const encodedCredentials = authorization.match(/^Basic\s+([A-Za-z0-9+/]+={0,2})$/i)?.[1];
+  if (encodedCredentials) {
+    const credentials = Buffer.from(encodedCredentials, 'base64').toString('utf8');
+    const separator = credentials.indexOf(':');
+    const username = separator >= 0 ? credentials.slice(0, separator) : '';
+    const password = separator >= 0 ? credentials.slice(separator + 1) : '';
+    const expected = Buffer.from(DASHBOARD_PASSWORD);
+    const provided = Buffer.from(password);
+    const passwordMatches = expected.length === provided.length &&
+      crypto.timingSafeEqual(expected, provided);
+    if (username === 'admin' && passwordMatches) return next();
+  }
+
+  res.set('Cache-Control', 'no-store');
+  res.set('WWW-Authenticate', 'Basic realm="APIServer Dashboard", charset="UTF-8"');
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ success: false, message: 'Cần mật khẩu quản trị để truy cập.' });
+  }
+  res.status(401).send('Mật khẩu quản trị không đúng hoặc chưa được cung cấp.');
+}
+
 const udidRouter = udidRoutes(PUBLIC_BASE_URL, GET_UDID_PAGE_URL);
+app.use(dashboardPasswordAuth);
 app.use(udidRouter);
 /* ================= CONSTANTS ================= */
 const PORT = process.env.PORT || 10000;
