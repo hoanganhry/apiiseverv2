@@ -102,6 +102,9 @@ app.use((err, req, res, next) => {
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('public'));
+app.get('/udid.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'edgeone-getudid', 'index.html'));
+});
 
 app.get('/get-key', (req, res) => {
   const packageId = typeof req.query.packageId === 'string' ? req.query.packageId.trim() : '';
