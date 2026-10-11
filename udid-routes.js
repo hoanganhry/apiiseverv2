@@ -11,6 +11,7 @@
 //          iOS sẽ từ chối gửi UDID về nếu domain không phải HTTPS thật.
 
 const express = require('express');
+const cors = require('cors');
 const forge = require('node-forge');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
@@ -18,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 
 const router = express.Router();
+router.use(cors());
 const GET_KEY_FLOW_TTL_MS = 10 * 60 * 1000;
 const getKeyFlows = new Map();
 
@@ -120,7 +122,7 @@ function extractPlistString(xml, key) {
   return m ? m[1] : null;
 }
 
-module.exports = function udidRoutes(publicBaseUrl) {
+module.exports = function udidRoutes(publicBaseUrl, getUdidPageUrl) {
 
   // Bước 1: sinh file cấu hình để thiết bị cài
   router.get('/api/udid/profile', (req, res) => {
@@ -239,7 +241,7 @@ module.exports = function udidRoutes(publicBaseUrl) {
       <key>Label</key>
       <string>AuthAPI</string>
       <key>URL</key>
-      <string>${publicBaseUrl}/udid.html</string>
+      <string>${getUdidPageUrl}</string>
       <key>IsRemovable</key>
       <true/>
       <key>FullScreen</key>
@@ -267,7 +269,23 @@ module.exports = function udidRoutes(publicBaseUrl) {
     } catch (err) {
       // trường hợp xấu nhất tuyệt đối không được xảy ra, nhưng nếu có, vẫn phải trả 200
       console.error('UDID callback final response error:', err.message);
-      res.status(200).set('Content-Type', 'application/x-apple-aspen-config').send('<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>PayloadContent</key><array><dict><key>PayloadType</key><string>com.apple.webClip.managed</string><key>PayloadVersion</key><integer>1</integer><key>PayloadIdentifier</key><string>com.authapi.webclip.fallback</string><key>PayloadUUID</key><string>' + uuidv4().toUpperCase() + '</string><key>PayloadDisplayName</key><string>AuthAPI</string><key>Label</key><string>AuthAPI</string><key>URL</key><string>' + publicBaseUrl + '/udid.html</string><key>IsRemovable</key><true/></dict></array><key>PayloadDisplayName</key><string>Hoan tat</string><key>PayloadIdentifier</key><string>com.authapi.complete.fallback</string><key>PayloadType</key><string>Configuration</string><key>PayloadUUID</key><string>' + uuidv4().toUpperCase() + '</string><key>PayloadVersion</key><integer>1</integer></dict></plist>');
+      const fallbackPlist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>PayloadContent</key><array><dict>
+<key>PayloadType</key><string>com.apple.webClip.managed</string>
+<key>PayloadVersion</key><integer>1</integer>
+<key>PayloadIdentifier</key><string>com.authapi.webclip.fallback</string>
+<key>PayloadUUID</key><string>${uuidv4().toUpperCase()}</string>
+<key>PayloadDisplayName</key><string>AuthAPI</string>
+<key>Label</key><string>AuthAPI</string>
+<key>URL</key><string>${getUdidPageUrl}</string>
+<key>IsRemovable</key><true/>
+</dict></array><key>PayloadDisplayName</key><string>Hoan tat</string>
+<key>PayloadIdentifier</key><string>com.authapi.complete.fallback</string>
+<key>PayloadType</key><string>Configuration</string>
+<key>PayloadUUID</key><string>${uuidv4().toUpperCase()}</string>
+<key>PayloadVersion</key><integer>1</integer></dict></plist>`;
+      res.status(200).set('Content-Type', 'application/x-apple-aspen-config').send(fallbackPlist);
     }
   });
 

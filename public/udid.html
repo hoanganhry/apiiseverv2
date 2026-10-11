@@ -81,6 +81,7 @@
   </div>
 
 <script>
+  const API_BASE_URL = 'https://helo123-6le3.onrender.com';
   const btn = document.getElementById('getBtn');
   const spinner = document.getElementById('spinner');
   const resultBox = document.getElementById('result');
@@ -99,6 +100,10 @@
   let capturedUdid = null;
   document.getElementById('linkPackageId').value =
     pageParams.get('packageId') || '';
+
+  function apiUrl(path) {
+    return new URL(path, `${API_BASE_URL}/`).toString();
+  }
 
   function createSessionId() {
     if (crypto.randomUUID) return crypto.randomUUID();
@@ -158,7 +163,7 @@
 
   async function pollCapture() {
     try {
-      const res = await fetch(`/api/udid/status?session=${encodeURIComponent(session)}`);
+      const res = await fetch(apiUrl(`/api/udid/status?session=${encodeURIComponent(session)}`));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.found) {
@@ -197,7 +202,7 @@
     btn.style.display = 'none';
 
     const profileWindow = window.open(
-      `/api/udid/profile?session=${encodeURIComponent(session)}`,
+      apiUrl(`/api/udid/profile?session=${encodeURIComponent(session)}`),
       '_blank'
     );
     if (!profileWindow) {
@@ -219,7 +224,7 @@
   async function checkExistingLink() {
     linkBox.style.display = 'block';
     try {
-      const r = await fetch(`/api/udid/my-key?udid=${encodeURIComponent(capturedUdid)}`);
+      const r = await fetch(apiUrl(`/api/udid/my-key?udid=${encodeURIComponent(capturedUdid)}`));
       const d = await r.json();
       if (!r.ok || !d.success) throw new Error(d.message || `HTTP ${r.status}`);
       if (d.linked) showLinkedState(d.key, d.linkedAt);
@@ -236,7 +241,7 @@
     linkMsg.className = 'linkMsg';
     linkBtn.disabled = true;
     try {
-      const flowRes = await fetch(`/api/udid/flow?session=${encodeURIComponent(getKeyFlowId)}`, {
+      const flowRes = await fetch(apiUrl(`/api/udid/flow?session=${encodeURIComponent(getKeyFlowId)}`), {
         cache: 'no-store'
       });
       const flowData = await flowRes.json();
@@ -276,7 +281,7 @@
     }
     linkMsg.textContent = 'Đang liên kết…';
     linkMsg.className = 'linkMsg';
-      const verifyRes = await fetch('/api/verify-key', {
+      const verifyRes = await fetch(apiUrl('/api/verify-key'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, device_id: capturedUdid, ...(packageId ? { packageId } : {}) })
@@ -286,7 +291,7 @@
         throw new Error(verifyData.message || 'Key không hợp lệ');
       }
 
-      const linkRes = await fetch('/api/udid/link-key', {
+      const linkRes = await fetch(apiUrl('/api/udid/link-key'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ udid: capturedUdid, key, ...(flowId ? { flowId } : {}) })

@@ -12,7 +12,11 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const udidRoutes = require('./udid-routes');
-const udidRouter = udidRoutes(process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com');
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com').replace(/\/+$/, '');
+const GET_UDID_PAGE_URL = new URL(
+  process.env.GET_UDID_PAGE_URL || 'https://getudid-dpinwvd6ror2.edgeone.dev/'
+).toString();
+const udidRouter = udidRoutes(PUBLIC_BASE_URL, GET_UDID_PAGE_URL);
 app.use(udidRouter);
 /* ================= CONSTANTS ================= */
 const PORT = process.env.PORT || 10000;
@@ -107,8 +111,9 @@ app.get('/get-key', (req, res) => {
   if (flowId) query.set('flow', flowId);
   if (packageId) query.set('packageId', packageId);
   if (session) query.set('session', session);
-  const target = query.size ? `/udid.html?${query.toString()}` : '/udid.html';
-  res.redirect(302, target);
+  const target = new URL(GET_UDID_PAGE_URL);
+  target.search = query.toString();
+  res.redirect(302, target.toString());
 });
 
 app.use((req, res, next) => {
@@ -1166,11 +1171,13 @@ app.post('/api/udid/start', async (req, res) => {
     const flowId = udidRouter.createGetKeyFlow(normalizedKey, normalizedPackageId);
     const query = new URLSearchParams({ flow: flowId });
     if (normalizedPackageId) query.set('packageId', normalizedPackageId);
+    const registrationUrl = new URL(GET_UDID_PAGE_URL);
+    registrationUrl.search = query.toString();
     res.set('Cache-Control', 'no-store');
     res.status(201).json({
       success: true,
       flowId,
-      registrationUrl: `/get-key?${query.toString()}`,
+      registrationUrl: registrationUrl.toString(),
       expiresInSeconds: 600
     });
   } catch (err) {
