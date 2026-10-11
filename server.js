@@ -13,9 +13,7 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const udidRoutes = require('./udid-routes');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com').replace(/\/+$/, '');
-const GET_UDID_PAGE_URL = new URL(
-  process.env.GET_UDID_PAGE_URL || 'https://getudid-dpinwvd6ror2.edgeone.dev/'
-).toString();
+const GET_UDID_PAGE_URL = new URL('/get-key', `${PUBLIC_BASE_URL}/`).toString();
 const udidRouter = udidRoutes(PUBLIC_BASE_URL, GET_UDID_PAGE_URL);
 app.use(udidRouter);
 /* ================= CONSTANTS ================= */
@@ -102,21 +100,18 @@ app.use((err, req, res, next) => {
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('public'));
-app.get('/udid.html', (req, res) => {
+app.get(['/get-key', '/udid.html'], (req, res) => {
+  if (req.path === '/udid.html') {
+    const query = new URLSearchParams();
+    for (const name of ['flow', 'packageId', 'session']) {
+      if (typeof req.query[name] === 'string' && req.query[name]) {
+        query.set(name, req.query[name]);
+      }
+    }
+    const suffix = query.size ? `?${query.toString()}` : '';
+    return res.redirect(302, `/get-key${suffix}`);
+  }
   res.sendFile(path.join(__dirname, 'edgeone-getudid', 'index.html'));
-});
-
-app.get('/get-key', (req, res) => {
-  const packageId = typeof req.query.packageId === 'string' ? req.query.packageId.trim() : '';
-  const flowId = typeof req.query.flow === 'string' ? req.query.flow.trim() : '';
-  const session = typeof req.query.session === 'string' ? req.query.session.trim() : '';
-  const query = new URLSearchParams();
-  if (flowId) query.set('flow', flowId);
-  if (packageId) query.set('packageId', packageId);
-  if (session) query.set('session', session);
-  const target = new URL(GET_UDID_PAGE_URL);
-  target.search = query.toString();
-  res.redirect(302, target.toString());
 });
 
 app.use((req, res, next) => {
@@ -1174,8 +1169,7 @@ app.post('/api/udid/start', async (req, res) => {
     const flowId = udidRouter.createGetKeyFlow(normalizedKey, normalizedPackageId);
     const query = new URLSearchParams({ flow: flowId });
     if (normalizedPackageId) query.set('packageId', normalizedPackageId);
-    const registrationUrl = new URL(GET_UDID_PAGE_URL);
-    registrationUrl.search = query.toString();
+    const registrationUrl = new URL(`/get-key?${query.toString()}`, `${PUBLIC_BASE_URL}/`);
     res.set('Cache-Control', 'no-store');
     res.status(201).json({
       success: true,

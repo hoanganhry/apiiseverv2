@@ -11,7 +11,6 @@
 //          iOS sẽ từ chối gửi UDID về nếu domain không phải HTTPS thật.
 
 const express = require('express');
-const cors = require('cors');
 const forge = require('node-forge');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
@@ -19,7 +18,6 @@ const fs = require('fs');
 const path = require('path');
 
 const router = express.Router();
-router.use(cors());
 const GET_KEY_FLOW_TTL_MS = 10 * 60 * 1000;
 const getKeyFlows = new Map();
 
