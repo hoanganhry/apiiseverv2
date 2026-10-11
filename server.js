@@ -14,7 +14,13 @@ const app = express();
 const udidRoutes = require('./udid-routes');
 const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com').replace(/\/+$/, '');
 const GET_UDID_PAGE_URL = new URL('/get-key', `${PUBLIC_BASE_URL}/`).toString();
-const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const DASHBOARD_SESSION_SECRET = process.env.DASHBOARD_SESSION_SECRET || '';
+const ADMIN_GOOGLE_EMAIL = 'thsucvat5@gmail.com';
+const DASHBOARD_SESSION_COOKIE = '__Host-dashboard-session';
+const GOOGLE_OAUTH_STATE_COOKIE = '__Host-google-oauth-state';
+const DASHBOARD_SESSION_TTL_SECONDS = 8 * 60 * 60;
 const DASHBOARD_PROTECTED_PATHS = new Set([
   '/api',
   '/api/create-key',
@@ -31,7 +37,11 @@ const DASHBOARD_PROTECTED_PATHS = new Set([
   '/api/udid/list'
 ]);
 
-function requiresDashboardPassword(req) {
+function isGoogleOAuthConfigured() {
+  return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && DASHBOARD_SESSION_SECRET.length >= 32);
+}
+
+function requiresDashboardAuth(req) {
   let requestPath;
   try {
     requestPath = decodeURIComponent(req.path).toLowerCase().replace(/\/+$/, '') || '/';
@@ -43,37 +53,209 @@ function requiresDashboardPassword(req) {
   return DASHBOARD_PROTECTED_PATHS.has(requestPath);
 }
 
-function dashboardPasswordAuth(req, res, next) {
-  if (!requiresDashboardPassword(req)) return next();
-  if (!DASHBOARD_PASSWORD) {
-    res.set('Cache-Control', 'no-store');
-    return res.status(503).send('Dashboard is locked. Configure DASHBOARD_PASSWORD on the server.');
+function readCookies(req) {
+  const cookies = new Map();
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0) continue;
+    const name = part.slice(0, separator).trim();
+    try {
+      cookies.set(name, decodeURIComponent(part.slice(separator + 1).trim()));
+    } catch {
+      continue;
+    }
   }
-
-  const authorization = req.get('authorization') || '';
-  const encodedCredentials = authorization.match(/^Basic\s+([A-Za-z0-9+/]+={0,2})$/i)?.[1];
-  if (encodedCredentials) {
-    const credentials = Buffer.from(encodedCredentials, 'base64').toString('utf8');
-    const separator = credentials.indexOf(':');
-    const username = separator >= 0 ? credentials.slice(0, separator) : '';
-    const password = separator >= 0 ? credentials.slice(separator + 1) : '';
-    const expected = Buffer.from(DASHBOARD_PASSWORD);
-    const provided = Buffer.from(password);
-    const passwordMatches = expected.length === provided.length &&
-      crypto.timingSafeEqual(expected, provided);
-    if (username === 'admin' && passwordMatches) return next();
-  }
-
-  res.set('Cache-Control', 'no-store');
-  res.set('WWW-Authenticate', 'Basic realm="APIServer Dashboard", charset="UTF-8"');
-  if (req.path.startsWith('/api/')) {
-    return res.status(401).json({ success: false, message: 'Cần mật khẩu quản trị để truy cập.' });
-  }
-  res.status(401).send('Mật khẩu quản trị không đúng hoặc chưa được cung cấp.');
+  return cookies;
 }
 
+function appendCookie(res, cookie) {
+  const current = res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie', current ? [...[].concat(current), cookie] : cookie);
+}
+
+function setSecureCookie(res, name, value, maxAge) {
+  appendCookie(
+    res,
+    `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`
+  );
+}
+
+function clearSecureCookie(res, name) {
+  appendCookie(res, `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+}
+
+function constantTimeEquals(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function createDashboardSession(email) {
+  const payload = Buffer.from(JSON.stringify({
+    email,
+    expiresAt: Date.now() + DASHBOARD_SESSION_TTL_SECONDS * 1000
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', DASHBOARD_SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function getDashboardSessionEmail(req) {
+  if (!isGoogleOAuthConfigured()) return null;
+  const session = readCookies(req).get(DASHBOARD_SESSION_COOKIE) || '';
+  const separator = session.lastIndexOf('.');
+  if (separator < 1) return null;
+  const payload = session.slice(0, separator);
+  const providedSignature = session.slice(separator + 1);
+  const expectedSignature = crypto.createHmac('sha256', DASHBOARD_SESSION_SECRET)
+    .update(payload)
+    .digest('base64url');
+  if (!constantTimeEquals(providedSignature, expectedSignature)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (data.email !== ADMIN_GOOGLE_EMAIL || !Number.isFinite(data.expiresAt) || data.expiresAt <= Date.now()) {
+      return null;
+    }
+    return data.email;
+  } catch {
+    return null;
+  }
+}
+
+function renderGoogleLoginPage(error = '') {
+  const errorMessages = {
+    setup: 'Đăng nhập Google chưa được cấu hình trên máy chủ.',
+    denied: 'Bạn đã hủy đăng nhập Google.',
+    invalid: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Hãy thử lại.',
+    account: `Chỉ tài khoản ${ADMIN_GOOGLE_EMAIL} được phép vào trang quản trị.`,
+    failed: 'Không thể đăng nhập Google lúc này. Hãy thử lại sau.'
+  };
+  const message = errorMessages[error] || '';
+  return `<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Đăng nhập quản trị</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0e0c;color:#dfe6e1;font:15px system-ui,sans-serif;padding:20px}
+.card{width:min(100%,390px);padding:32px;background:#121613;border:1px solid #24302a;border-radius:16px;text-align:center}
+h1{font-size:22px;margin:0 0 8px}p{color:#98a49d;line-height:1.5}.account{font-weight:600;color:#f5a623}
+a{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:24px;padding:13px 16px;border-radius:9px;background:#fff;color:#202124;text-decoration:none;font-weight:600}
+a:hover{background:#f1f3f4}.error{color:#ff9c9c;margin-top:16px;font-size:14px}
+</style></head><body><main class="card"><h1>Đăng nhập quản trị</h1>
+<p>Tiếp tục bằng tài khoản Google<br><span class="account">${ADMIN_GOOGLE_EMAIL}</span></p>
+<a href="/auth/google"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.76 7.18l7.73 6c4.51-4.18 7.07-10.35 7.07-17.65z"/><path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.52 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.15 1.45-4.92 2.3-8.18 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Đăng nhập bằng Google</a>
+${message ? `<div class="error" role="alert">${message}</div>` : ''}
+</main></body></html>`;
+}
+
+function dashboardGoogleAuth(req, res, next) {
+  if (!requiresDashboardAuth(req)) return next();
+  if (!isGoogleOAuthConfigured()) {
+    res.set('Cache-Control', 'no-store');
+    if (req.path.toLowerCase().startsWith('/api/')) {
+      return res.status(503).json({ success: false, message: 'Google sign-in chưa được cấu hình trên máy chủ.' });
+    }
+    return res.redirect(302, '/login?error=setup');
+  }
+
+  if (getDashboardSessionEmail(req) === ADMIN_GOOGLE_EMAIL) return next();
+
+  res.set('Cache-Control', 'no-store');
+  if (req.path.toLowerCase().startsWith('/api/')) {
+    return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập bằng tài khoản Google quản trị.' });
+  }
+  res.redirect(302, '/login');
+}
+
+app.get('/login', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (getDashboardSessionEmail(req) === ADMIN_GOOGLE_EMAIL) return res.redirect(302, '/');
+  const error = typeof req.query.error === 'string' ? req.query.error : '';
+  res.type('html').send(renderGoogleLoginPage(isGoogleOAuthConfigured() ? error : 'setup'));
+});
+
+app.get('/auth/google', (req, res) => {
+  if (!isGoogleOAuthConfigured()) return res.redirect(302, '/login?error=setup');
+
+  const state = crypto.randomBytes(32).toString('base64url');
+  setSecureCookie(res, GOOGLE_OAUTH_STATE_COOKIE, state, 600);
+  const authorizationUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authorizationUrl.search = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${PUBLIC_BASE_URL}/auth/google/callback`,
+    response_type: 'code',
+    scope: 'openid email',
+    state,
+    prompt: 'select_account',
+    login_hint: ADMIN_GOOGLE_EMAIL
+  }).toString();
+  res.redirect(302, authorizationUrl.toString());
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const cookies = readCookies(req);
+  const savedState = cookies.get(GOOGLE_OAUTH_STATE_COOKIE) || '';
+  clearSecureCookie(res, GOOGLE_OAUTH_STATE_COOKIE);
+
+  if (req.query.error) return res.redirect(302, '/login?error=denied');
+  const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const code = typeof req.query.code === 'string' ? req.query.code : '';
+  if (!state || !code || !constantTimeEquals(state, savedState)) {
+    return res.redirect(302, '/login?error=invalid');
+  }
+  if (!isGoogleOAuthConfigured()) return res.redirect(302, '/login?error=setup');
+
+  try {
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${PUBLIC_BASE_URL}/auth/google/callback`,
+        grant_type: 'authorization_code'
+      }),
+      signal: AbortSignal.timeout(10000)
+    });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || typeof tokenData.access_token !== 'string') {
+      console.error('Google OAuth token exchange failed:', tokenData.error || tokenResponse.status);
+      return res.redirect(302, '/login?error=failed');
+    }
+
+    const userResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      signal: AbortSignal.timeout(10000)
+    });
+    const user = await userResponse.json();
+    if (!userResponse.ok || user.email_verified !== true || typeof user.email !== 'string') {
+      console.error('Google OAuth user profile could not be verified:', userResponse.status);
+      return res.redirect(302, '/login?error=failed');
+    }
+    if (user.email.trim().toLowerCase() !== ADMIN_GOOGLE_EMAIL) {
+      return res.redirect(302, '/login?error=account');
+    }
+
+    setSecureCookie(
+      res,
+      DASHBOARD_SESSION_COOKIE,
+      createDashboardSession(ADMIN_GOOGLE_EMAIL),
+      DASHBOARD_SESSION_TTL_SECONDS
+    );
+    res.redirect(302, '/');
+  } catch (err) {
+    console.error('Google OAuth callback failed:', err);
+    res.redirect(302, '/login?error=failed');
+  }
+});
+
+app.get('/auth/logout', (req, res) => {
+  clearSecureCookie(res, DASHBOARD_SESSION_COOKIE);
+  res.redirect(302, '/login');
+});
+
 const udidRouter = udidRoutes(PUBLIC_BASE_URL, GET_UDID_PAGE_URL);
-app.use(dashboardPasswordAuth);
+app.use(dashboardGoogleAuth);
 app.use(udidRouter);
 /* ================= CONSTANTS ================= */
 const PORT = process.env.PORT || 10000;

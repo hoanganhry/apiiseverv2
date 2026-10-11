@@ -65,6 +65,9 @@
     border:1px solid var(--line); background:var(--panel); padding:9px 14px; border-radius:999px;
     color:var(--text-dim);
   }
+  .topbar-actions{display:flex; align-items:center; gap:10px;}
+  .logout-link{font-size:12px; color:var(--text-dim); text-decoration:none; padding:8px 10px; border:1px solid var(--line); border-radius:8px;}
+  .logout-link:hover{color:var(--text); border-color:var(--amber);}
   .status-dot{width:8px;height:8px;border-radius:50%; background:var(--text-dim); flex:none;}
   .status-dot.ok{background:var(--green); box-shadow:0 0 10px var(--green);}
   .status-dot.bad{background:var(--red); box-shadow:0 0 10px var(--red);}
@@ -391,9 +394,12 @@
 
   <header>
     <span class="topbar-label">Dashboard</span>
-    <div class="status-chip" id="statusChip">
-      <span class="status-dot pulse" id="statusDot"></span>
-      <span id="statusText">checking server…</span>
+    <div class="topbar-actions">
+      <div class="status-chip" id="statusChip">
+        <span class="status-dot pulse" id="statusDot"></span>
+        <span id="statusText">checking server…</span>
+      </div>
+      <a class="logout-link" href="/auth/logout">Đăng xuất</a>
     </div>
   </header>
 
