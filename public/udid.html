@@ -85,7 +85,9 @@
   const spinner = document.getElementById('spinner');
   const resultBox = document.getElementById('result');
   const retryBtn = document.getElementById('retryBtn');
-  let session = createSessionId();
+  const pageParams = new URLSearchParams(window.location.search);
+  const getKeyFlowId = pageParams.get('flow') || '';
+  let session = getKeyFlowId || createSessionId();
   let poller = null;
   let timeout = null;
 
@@ -95,7 +97,7 @@
   const linkMsg = document.getElementById('linkMsg');
   let capturedUdid = null;
   document.getElementById('linkPackageId').value =
-    new URLSearchParams(window.location.search).get('packageId') || '';
+    pageParams.get('packageId') || '';
 
   function createSessionId() {
     if (crypto.randomUUID) return crypto.randomUUID();
@@ -170,7 +172,8 @@
         resultBox.style.display = 'block';
         capturedUdid = data.udid;
         renderCapture(data);
-        await checkExistingLink();
+        if (getKeyFlowId) await completeGetKeyFlow();
+        else await checkExistingLink();
         return;
       }
     } catch (error) {
@@ -225,6 +228,30 @@
     }
   }
 
+  async function completeGetKeyFlow() {
+    linkBox.style.display = 'block';
+    linkMsg.textContent = 'Đã nhận UDID. Đang xác thực key và liên kết thiết bị…';
+    linkMsg.className = 'linkMsg';
+    linkBtn.disabled = true;
+    try {
+      const flowRes = await fetch(`/api/udid/flow?session=${encodeURIComponent(getKeyFlowId)}`, {
+        cache: 'no-store'
+      });
+      const flowData = await flowRes.json();
+      if (!flowRes.ok || !flowData.success) {
+        throw new Error(flowData.message || 'Phiên Get Key đã hết hạn. Hãy bắt đầu lại trong app.');
+      }
+      linkKeyInput.value = flowData.key;
+      document.getElementById('linkPackageId').value = flowData.packageId || '';
+      await linkKeyToDevice(flowData.key, flowData.packageId || '', getKeyFlowId);
+    } catch (error) {
+      linkMsg.textContent = '✕ ' + error.message;
+      linkMsg.className = 'linkMsg err';
+    } finally {
+      linkBtn.disabled = false;
+    }
+  }
+
   function showLinkedState(key, linkedAt) {
     linkBox.textContent = '';
     const label = document.createElement('label');
@@ -239,18 +266,14 @@
     linkBox.style.display = 'block';
   }
 
-  linkBtn.addEventListener('click', async () => {
-    const key = linkKeyInput.value.trim();
-    const packageId = document.getElementById('linkPackageId').value.trim();
+  async function linkKeyToDevice(key, packageId, flowId = '') {
     if (!key || !capturedUdid) {
       linkMsg.textContent = 'Nhập key để liên kết với UDID vừa lấy.';
       linkMsg.className = 'linkMsg err';
-      return;
+      throw new Error(linkMsg.textContent);
     }
-    linkBtn.disabled = true;
     linkMsg.textContent = 'Đang liên kết…';
     linkMsg.className = 'linkMsg';
-    try {
       const verifyRes = await fetch('/api/verify-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -264,13 +287,21 @@
       const linkRes = await fetch('/api/udid/link-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ udid: capturedUdid, key })
+        body: JSON.stringify({ udid: capturedUdid, key, ...(flowId ? { flowId } : {}) })
       });
       const linkData = await linkRes.json();
       if (!linkRes.ok || !linkData.success) {
         throw new Error(linkData.message || 'Không lưu được liên kết UDID với key');
       }
       showLinkedState(key, new Date().toISOString());
+  }
+
+  linkBtn.addEventListener('click', async () => {
+    const key = linkKeyInput.value.trim();
+    const packageId = document.getElementById('linkPackageId').value.trim();
+    linkBtn.disabled = true;
+    try {
+      await linkKeyToDevice(key, packageId);
     } catch (error) {
       linkMsg.textContent = '✕ ' + error.message;
       linkMsg.className = 'linkMsg err';

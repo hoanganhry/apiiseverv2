@@ -101,7 +101,11 @@ app.use(express.static('public'));
 
 app.get('/get-key', (req, res) => {
   const packageId = typeof req.query.packageId === 'string' ? req.query.packageId.trim() : '';
-  const target = packageId ? `/udid.html?packageId=${encodeURIComponent(packageId)}` : '/udid.html';
+  const flowId = typeof req.query.flow === 'string' ? req.query.flow.trim() : '';
+  const query = new URLSearchParams();
+  if (flowId) query.set('flow', flowId);
+  if (packageId) query.set('packageId', packageId);
+  const target = query.size ? `/udid.html?${query.toString()}` : '/udid.html';
   res.redirect(302, target);
 });
 
@@ -1109,6 +1113,54 @@ app.get('/api/list-keys', async (req, res) => {
   } catch(err) {
     console.error('List all keys error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+app.post('/api/udid/start', async (req, res) => {
+  try {
+    const { key, packageId } = req.body || {};
+    if (typeof key !== 'string' || !key.trim() ||
+        (packageId !== undefined && typeof packageId !== 'string')) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập key hợp lệ.' });
+    }
+
+    const normalizedKey = key.trim();
+    const normalizedPackageId = typeof packageId === 'string' ? packageId.trim() : '';
+    const license = (await loadKeys()).find(item => item.key_code === normalizedKey);
+    if (!license) {
+      return res.status(404).json({ success: false, message: 'Key không tồn tại.' });
+    }
+    if (license.package_id || normalizedPackageId) {
+      if (!normalizedPackageId || license.package_id !== normalizedPackageId) {
+        return res.status(403).json({ success: false, message: 'Key không được gán cho gói ứng dụng này.' });
+      }
+      const appPackage = (await loadPackages()).find(item => item.id === normalizedPackageId);
+      if (!appPackage || !appPackage.enabled) {
+        return res.status(403).json({
+          success: false,
+          message: appPackage?.message || 'Gói ứng dụng đã bị tắt.',
+          updateUrl: appPackage?.updateUrl || null
+        });
+      }
+    }
+    if (!Number.isFinite(new Date(license.expires_at).getTime()) ||
+        new Date(license.expires_at).getTime() <= Date.now()) {
+      return res.status(403).json({ success: false, message: 'Key đã hết hạn.' });
+    }
+
+    const flowId = udidRouter.createGetKeyFlow(normalizedKey, normalizedPackageId);
+    const query = new URLSearchParams({ flow: flowId });
+    if (normalizedPackageId) query.set('packageId', normalizedPackageId);
+    res.set('Cache-Control', 'no-store');
+    res.status(201).json({
+      success: true,
+      flowId,
+      registrationUrl: `/get-key?${query.toString()}`,
+      expiresInSeconds: 600
+    });
+  } catch (err) {
+    console.error('Start Get Key flow error:', err);
+    res.status(500).json({ success: false, message: 'Không thể bắt đầu Get Key. Vui lòng thử lại.' });
   }
 });
 

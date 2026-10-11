@@ -13,10 +13,13 @@
 const express = require('express');
 const forge = require('node-forge');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const router = express.Router();
+const GET_KEY_FLOW_TTL_MS = 10 * 60 * 1000;
+const getKeyFlows = new Map();
 
 const DB_FILE = path.join(__dirname, 'udid_log.json');
 if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, '[]');
@@ -33,13 +36,40 @@ function saveRecord(record) {
 function findRecord(session) {
   return loadRecords().find(r => r.session === session);
 }
-function updateRecordByUdid(udid, patch) {
+function updateRecordByUdid(udid, patch, session = null) {
   const records = loadRecords();
   for (let i = records.length - 1; i >= 0; i--) {
-    if (records[i].udid === udid) {
+    if (records[i].udid === udid && (!session || records[i].session === session)) {
       Object.assign(records[i], patch);
       fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2));
       return records[i];
+    }
+
+    function pruneGetKeyFlows() {
+      const now = Date.now();
+      for (const [flowId, flow] of getKeyFlows) {
+        if (flow.expiresAt <= now) getKeyFlows.delete(flowId);
+      }
+    }
+
+    function createGetKeyFlow(key, packageId) {
+      pruneGetKeyFlows();
+      const flowId = crypto.randomBytes(32).toString('hex');
+      getKeyFlows.set(flowId, {
+        key,
+        packageId: packageId || '',
+        expiresAt: Date.now() + GET_KEY_FLOW_TTL_MS
+      });
+      return flowId;
+    }
+
+    function getGetKeyFlow(flowId) {
+      pruneGetKeyFlows();
+      return getKeyFlows.get(flowId) || null;
+    }
+
+    function completeGetKeyFlow(flowId) {
+      return getKeyFlows.delete(flowId);
     }
   }
   return null;
@@ -221,6 +251,21 @@ module.exports = function udidRoutes(publicBaseUrl) {
     res.json({ success: true, linked: true, key: latest.linkedKey, linkedAt: latest.linkedAt });
   });
 
+  router.get('/api/udid/flow', (req, res) => {
+    const flowId = typeof req.query.session === 'string' ? req.query.session : '';
+    const flow = getGetKeyFlow(flowId);
+    res.set('Cache-Control', 'no-store');
+    if (!flow) {
+      return res.status(404).json({ success: false, message: 'Phiên Get Key không hợp lệ hoặc đã hết hạn. Hãy bắt đầu lại.' });
+    }
+    res.json({
+      success: true,
+      key: flow.key,
+      packageId: flow.packageId,
+      expiresAt: new Date(flow.expiresAt).toISOString()
+    });
+  });
+
   // Danh sách toàn bộ UDID đã lấy được (mới nhất trước), kèm key đã liên kết (nếu có)
   // -> dùng cho trang quản trị index.html, không public trong udid.html
   router.get('/api/udid/list', (req, res) => {
@@ -236,18 +281,31 @@ module.exports = function udidRoutes(publicBaseUrl) {
 
   // Ghi lại UDID này đang dùng key nào (gọi sau khi verify-key ở server chính thành công)
   router.post('/api/udid/link-key', express.json(), (req, res) => {
-    const { udid, key } = req.body || {};
+    const { udid, key, flowId } = req.body || {};
     if (!udid || !key) {
       return res.status(400).json({ success: false, message: 'Thiếu udid hoặc key' });
     }
-    const updated = updateRecordByUdid(udid, { linkedKey: key, linkedAt: new Date().toISOString() });
+    if (flowId) {
+      const flow = getGetKeyFlow(flowId);
+      if (!flow || flow.key !== key) {
+        return res.status(403).json({ success: false, message: 'Phiên Get Key không hợp lệ hoặc đã hết hạn. Hãy bắt đầu lại.' });
+      }
+    }
+    const updated = updateRecordByUdid(
+      udid,
+      { linkedKey: key, linkedAt: new Date().toISOString() },
+      flowId || null
+    );
     if (!updated) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy UDID này trong danh sách đã capture' });
     }
+    if (flowId) completeGetKeyFlow(flowId);
     res.json({ success: true, device: updated });
   });
 
   router.getDeviceRecords = () => loadRecords().filter(record => record.udid);
+  router.createGetKeyFlow = createGetKeyFlow;
+  router.getGetKeyFlow = getGetKeyFlow;
 
   return router;
 };
