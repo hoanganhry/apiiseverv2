@@ -1106,12 +1106,17 @@ app.get('/api/list-keys', async (req, res) => {
       });
     });
     const keys = await loadKeys();
-    res.json(keys.map(key => ({
-      ...key,
-      device_info: (Array.isArray(key.devices) ? key.devices : []).map(udid =>
-        deviceDetailsByUdid.get(udid) || { udid, product: null, version: null, capturedAt: null }
-      )
-    })));
+    res.json(keys.map(key => {
+      const devices = [...new Set((Array.isArray(key.devices) ? key.devices : [])
+        .filter(udid => typeof udid === 'string' && udid.trim()))];
+      return {
+        ...key,
+        devices,
+        device_info: devices.map(udid =>
+          deviceDetailsByUdid.get(udid) || { udid, product: null, version: null, capturedAt: null }
+        )
+      };
+    }));
   } catch(err) {
     console.error('List all keys error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
@@ -1681,8 +1686,10 @@ app.post('/api/delete-expired-keys', async (req, res) => {
 
 app.post('/api/verify-key', async (req, res) => {
   try {
-    const { key, device_id, packageId } = req.body || {};
-    
+    const { key: submittedKey, device_id: submittedDeviceId, packageId } = req.body || {};
+    const key = typeof submittedKey === 'string' ? submittedKey.trim() : '';
+    const device_id = typeof submittedDeviceId === 'string' ? submittedDeviceId.trim() : '';
+
     if (!key || !device_id) {
       return res.status(400).json({ 
         success: false, 
@@ -1739,6 +1746,8 @@ app.post('/api/verify-key', async (req, res) => {
       });
     }
 
+    found.devices = [...new Set((Array.isArray(found.devices) ? found.devices : [])
+      .filter(id => typeof id === 'string' && id.trim()))];
     if (!found.devices.includes(device_id)) {
       if (found.devices.length >= found.allowed_devices) {
         return res.json({ 
@@ -1756,12 +1765,15 @@ app.post('/api/verify-key', async (req, res) => {
     found.total_verifications = (found.total_verifications || 0) + 1;
     found.last_verified = new Date().toISOString();
     await saveKeys(keys);
+    const registeredDevice = udidRouter.linkDeviceToKey(device_id, found.key_code);
 
     res.json({ 
       success: true, 
       message: 'Xác thực thành công', 
       type: found.type,
       expires_at: found.expires_at,
+      device_id,
+      device_linked: Boolean(registeredDevice),
       devices_remaining: found.allowed_devices - found.devices.length
     });
   } catch(err) {
