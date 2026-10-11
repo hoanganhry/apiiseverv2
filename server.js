@@ -102,9 +102,11 @@ app.use(express.static('public'));
 app.get('/get-key', (req, res) => {
   const packageId = typeof req.query.packageId === 'string' ? req.query.packageId.trim() : '';
   const flowId = typeof req.query.flow === 'string' ? req.query.flow.trim() : '';
+  const session = typeof req.query.session === 'string' ? req.query.session.trim() : '';
   const query = new URLSearchParams();
   if (flowId) query.set('flow', flowId);
   if (packageId) query.set('packageId', packageId);
+  if (session) query.set('session', session);
   const target = query.size ? `/udid.html?${query.toString()}` : '/udid.html';
   res.redirect(302, target);
 });

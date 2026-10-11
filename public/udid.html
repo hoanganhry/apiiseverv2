@@ -87,6 +87,7 @@
   const retryBtn = document.getElementById('retryBtn');
   const pageParams = new URLSearchParams(window.location.search);
   const getKeyFlowId = pageParams.get('flow') || '';
+  let requestedSession = pageParams.get('session') || '';
   let session = getKeyFlowId || createSessionId();
   let poller = null;
   let timeout = null;
@@ -184,7 +185,8 @@
 
   function startCapture() {
     stopPolling();
-    session = createSessionId();
+    session = requestedSession || createSessionId();
+    requestedSession = '';
     capturedUdid = null;
     resultBox.style.display = 'none';
     linkBox.style.display = 'none';
