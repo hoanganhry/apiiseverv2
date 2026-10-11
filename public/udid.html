@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lấy UDID thiết bị</title>
+<title>Get Key - Đăng ký thiết bị</title>
 <style>
   :root{
     --bg:#0b0e0c; --panel:#121613; --line:#24302a; --amber:#f5a623; --text:#dfe6e1; --text-dim:#8a968f;
@@ -61,14 +61,14 @@
 </head>
 <body>
   <div class="card">
-    <h1>📲 Lấy UDID thiết bị</h1>
-    <p>Mở trang này bằng <strong>Safari trên iPhone/iPad</strong>. Nhấn nút bên dưới, cài profile khi được hỏi, UDID sẽ tự hiện ra.</p>
-    <button id="getBtn">Lấy UDID của tôi</button>
+    <h1>🔑 Get Key - Đăng ký thiết bị</h1>
+    <p>Mở link này bằng <strong>Safari trên iPhone/iPad</strong>. Nhấn Get Key, cài profile khi được hỏi; server sẽ nhận UDID thật của máy. Sau đó nhập key đã được cấp để lưu key cùng thiết bị.</p>
+    <button id="getBtn">Get Key / Lấy UDID</button>
     <div class="spinner" id="spinner" aria-live="polite">Đang chờ bạn cài profile trong Cài đặt…</div>
     <button id="retryBtn" class="retryBtn">Thử lấy lại UDID</button>
     <div class="result" id="result"></div>
     <div class="linkBox" id="linkBox" style="display:none;">
-      <label>Nhập key để liên kết với UDID này</label>
+      <label>Nhập key đã được cấp để liên kết với UDID này</label>
       <div class="linkRow">
         <input type="text" id="linkKey" placeholder="KEY-XXXXXX-XXXX">
         <button id="linkBtn">Liên kết</button>
@@ -94,6 +94,8 @@
   const linkBtn = document.getElementById('linkBtn');
   const linkMsg = document.getElementById('linkMsg');
   let capturedUdid = null;
+  document.getElementById('linkPackageId').value =
+    new URLSearchParams(window.location.search).get('packageId') || '';
 
   function createSessionId() {
     if (crypto.randomUUID) return crypto.randomUUID();

@@ -247,5 +247,7 @@ module.exports = function udidRoutes(publicBaseUrl) {
     res.json({ success: true, device: updated });
   });
 
+  router.getDeviceRecords = () => loadRecords().filter(record => record.udid);
+
   return router;
 };

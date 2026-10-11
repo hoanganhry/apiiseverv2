@@ -426,7 +426,7 @@
         <div class="toolbar-actions">
           <button class="btn" onclick="switchTab('create')">Tạo key</button>
           <button class="btn secondary" onclick="switchTab('keys')">Danh sách key</button>
-          <a class="btn secondary" href="/udid.html" target="_blank" rel="noopener">Lấy UDID</a>
+          <a class="btn secondary" href="/get-key" target="_blank" rel="noopener">Get Key / Đăng ký thiết bị</a>
         </div>
       </div>
       <div class="panel">
@@ -639,10 +639,10 @@
   <!-- DEVICES / UDID -->
   <section class="tab-panel" id="tab-devices" style="display:none;">
     <div class="panel">
-      <h2>Danh sách thiết bị đã lấy UDID</h2>
+      <h2>Thiết bị đã lấy UDID và nhập key</h2>
       <div class="table-toolbar">
         <div class="toolbar-actions">
-          <a class="btn" href="/udid.html" target="_blank" rel="noopener">Lấy UDID</a>
+          <a class="btn" href="/get-key" target="_blank" rel="noopener">Get Key / Đăng ký thiết bị</a>
           <button class="btn secondary" onclick="loadUdidDevices()">⟳ Refresh</button>
           <button class="btn secondary" onclick="exportTable('devicesTable','danh-sach-thiet-bi.csv')">⇩ Export</button>
         </div>
@@ -1313,16 +1313,26 @@ async function loadAllKeys() {
     const now = new Date();
     wrap.innerHTML = `<table id="keysTable"><thead><tr>
       <th class="select-column"><input id="keysSelectPage" type="checkbox" aria-label="Chọn tất cả key trên trang" onchange="toggleVisibleKeySelection(this.checked)"></th>
-      <th>Key</th><th>UID thiết bị</th><th>Ngày tạo</th><th>Hết hạn</th><th>Thời lượng</th><th>Kích hoạt</th><th>Gói</th><th>Nguồn</th><th>Trạng thái</th><th>Thao tác</th>
+      <th>Key</th><th>Thiết bị đã dùng</th><th>Ngày tạo</th><th>Hết hạn</th><th>Thời lượng</th><th>Kích hoạt</th><th>Gói</th><th>Nguồn</th><th>Trạng thái</th><th>Thao tác</th>
     </tr></thead><tbody>${data.map(k => {
       const expiresAt = new Date(k.expires_at);
       const expired = expiresAt <= now;
       const createdAt = k.created_at ? new Date(k.created_at).toLocaleDateString('vi-VN') : '—';
       const deviceUids = Array.isArray(k.devices) ? [...new Set(k.devices.filter(uid => typeof uid === 'string' && uid.trim()))] : [];
+      const deviceDetails = new Map((Array.isArray(k.device_info) ? k.device_info : [])
+        .filter(device => device && typeof device.udid === 'string')
+        .map(device => [device.udid, device]));
+      const deviceSummary = deviceUids.length ? deviceUids.map(uid => {
+        const device = deviceDetails.get(uid);
+        const description = [device?.product, device?.version ? `iOS ${device.version}` : null]
+          .filter(Boolean).join(' · ');
+        const capturedAt = device?.capturedAt ? new Date(device.capturedAt).toLocaleString('vi-VN') : '';
+        return `<div class="mono-cell">${escapeHtml(uid)}</div>${description ? `<small>${escapeHtml(description)}</small>` : ''}${capturedAt ? `<small>Nhận UDID: ${escapeHtml(capturedAt)}</small>` : ''}`;
+      }).join('') : '—';
       return `<tr>
         <td class="select-column"><input class="key-select" type="checkbox" data-key="${escapeHtml(k.key_code || '')}" aria-label="Chọn key ${escapeHtml(k.key_code || '')}" ${selectedKeyCodes.has(k.key_code) ? 'checked' : ''} onchange="toggleKeySelection(this.dataset.key,this.checked)"></td>
         <td data-label="Key"><span class="mono-cell">${escapeHtml(k.key_code || '—')}</span></td>
-        <td data-label="UID thiết bị">${deviceUids.length ? deviceUids.map(uid => `<div class="mono-cell">${escapeHtml(uid)}</div>`).join('') : '—'}</td>
+        <td data-label="Thiết bị đã dùng">${deviceSummary}</td>
         <td data-label="Ngày tạo">${createdAt}</td>
         <td data-label="Hết hạn">${Number.isNaN(expiresAt.getTime()) ? '—' : expiresAt.toLocaleDateString('vi-VN')}</td>
         <td data-label="Thời lượng">${Number.isNaN(expiresAt.getTime()) || !k.created_at ? '—' : Math.max(0, Math.ceil((expiresAt - new Date(k.created_at)) / 86400000)) + ' ngày'}</td>

@@ -12,7 +12,8 @@ const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const udidRoutes = require('./udid-routes');
-app.use(udidRoutes(process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com'));
+const udidRouter = udidRoutes(process.env.PUBLIC_BASE_URL || 'https://helo123-6le3.onrender.com');
+app.use(udidRouter);
 /* ================= CONSTANTS ================= */
 const PORT = process.env.PORT || 10000;
 const DATA_DIR = process.env.DATA_DIR || __dirname;
@@ -97,6 +98,12 @@ app.use((err, req, res, next) => {
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('public'));
+
+app.get('/get-key', (req, res) => {
+  const packageId = typeof req.query.packageId === 'string' ? req.query.packageId.trim() : '';
+  const target = packageId ? `/udid.html?packageId=${encodeURIComponent(packageId)}` : '/udid.html';
+  res.redirect(302, target);
+});
 
 app.use((req, res, next) => {
   const startTime = Date.now();
@@ -1080,7 +1087,25 @@ app.post('/api/bulk-create-keys', async (req, res) => {
 
 app.get('/api/list-keys', async (req, res) => {
   try {
-    res.json(await loadKeys());
+    const deviceRecords = udidRouter.getDeviceRecords();
+    const deviceDetailsByUdid = new Map();
+    deviceRecords.forEach(record => {
+      deviceDetailsByUdid.set(record.udid, {
+        udid: record.udid,
+        product: record.product || null,
+        version: record.version || null,
+        capturedAt: record.capturedAt || null,
+        linkedKey: record.linkedKey || null,
+        linkedAt: record.linkedAt || null
+      });
+    });
+    const keys = await loadKeys();
+    res.json(keys.map(key => ({
+      ...key,
+      device_info: (Array.isArray(key.devices) ? key.devices : []).map(udid =>
+        deviceDetailsByUdid.get(udid) || { udid, product: null, version: null, capturedAt: null }
+      )
+    })));
   } catch(err) {
     console.error('List all keys error:', err);
     res.status(500).json({ success: false, message: 'Server error' });
