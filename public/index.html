@@ -291,8 +291,16 @@
   .package-create-dialog header h2{margin:0;}
   .package-modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px;}
   .create-modal-overlay,.created-keys-modal{position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(25,34,52,.48);}
+  .success-operation-modal{position:fixed; inset:0; z-index:31; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(25,34,52,.48);}
+  .success-operation-modal[hidden]{display:none;}
   .create-modal-overlay[hidden],.created-keys-modal[hidden]{display:none;}
   .create-dialog,.created-keys-dialog{width:min(760px,100%); max-height:calc(100vh - 40px); overflow:auto; background:#fff; border:1px solid #e8eaf0; border-radius:8px; padding:20px; box-shadow:0 16px 50px rgba(22,32,50,.22);}
+  .success-operation-dialog{width:min(520px,100%); background:#fff; border:1px solid #e8eaf0; border-radius:8px; padding:20px; box-shadow:0 16px 50px rgba(22,32,50,.22);}
+  .success-operation-details{display:grid; gap:10px; margin:18px 0; color:#596477; font-size:13px;}
+  .success-operation-details div{display:grid; grid-template-columns:130px minmax(0,1fr); gap:12px; padding-bottom:9px; border-bottom:1px solid #edf0f5;}
+  .success-operation-details dt{color:#9099aa;}
+  .success-operation-details dd{margin:0; overflow-wrap:anywhere;}
+  .success-operation-dialog .created-keys-actions{margin-top:18px;}
   .create-dialog-header,.created-keys-header{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px;}
   .create-dialog-header h2,.created-keys-header h2{margin:0; color:#596477; font-size:17px; font-weight:500;}
   .create-dialog-header p,.created-keys-header p{margin:5px 0 0; color:#9099aa; font-size:12px;}
@@ -304,6 +312,12 @@
   .created-key-code{min-width:0; color:#39445a; font:13px var(--mono); overflow-wrap:anywhere;}
   .created-keys-actions{display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; margin-top:16px;}
   .created-keys-summary{color:#596477; font-size:13px;}
+  .key-actions-toolbar{display:flex; align-items:center; gap:8px; flex-wrap:nowrap; overflow-x:auto; padding:0 0 10px; margin-bottom:12px; border-bottom:1px solid var(--line-soft);}
+  .key-actions-toolbar button.btn{min-height:38px; padding:9px 14px; white-space:nowrap; box-shadow:0 2px 5px rgba(32,43,68,.12);}
+  .key-actions-toolbar button.btn:not(.danger){background:#6266f1; color:#fff;}
+  .key-actions-toolbar button.btn:not(.danger):hover{background:#5559e8; color:#fff;}
+  .key-actions-toolbar button.btn.requires-single:disabled{opacity:.45; box-shadow:none;}
+  .key-actions-toolbar .toolbar-spacer{flex:1 0 8px;}
   body.modal-open{overflow:hidden;}
   table{min-width:650px; margin-top:0; font:11px var(--sans);}
   th,td{padding:11px 10px; border-bottom:1px solid #edf0f5;}
@@ -352,8 +366,8 @@
     tr{display:table-row; padding:0; border:0;}
     td{display:table-cell; padding:9px 8px;}
     td::before{content:none;}
-    .create-modal-overlay,.created-keys-modal{padding:10px;}
-    .create-dialog,.created-keys-dialog{max-height:calc(100vh - 20px); padding:14px;}
+    .create-modal-overlay,.created-keys-modal,.success-operation-modal{padding:10px;}
+    .create-dialog,.created-keys-dialog,.success-operation-dialog{max-height:calc(100vh - 20px); padding:14px;}
     .created-key-row{align-items:flex-start;}
   }
 </style>
@@ -387,14 +401,6 @@
     <button data-tab="devices">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M11 18h2"/></svg>
       Danh sách thiết bị
-    </button>
-    <button data-tab="create">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-      Tạo key
-    </button>
-    <button data-tab="manage">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0L19 4m-3.5 3.5L19 4"/></svg>
-      Công cụ key
     </button>
   </nav>
 
@@ -503,10 +509,25 @@
   <section class="tab-panel" id="tab-keys" style="display:none;">
     <div class="panel">
       <h2>Danh sách key</h2>
-      <div class="toolbar-actions">
-        <button class="btn" onclick="switchTab('create')">＋ Tạo key</button>
-        <button class="btn danger" onclick="deleteSelectedKeys()">Xóa key đã chọn (<span id="selectedKeyCount">0</span>)</button>
-        <button class="btn danger" onclick="deleteExpiredKeys()">Xóa key hết hạn</button>
+      <div class="key-actions-toolbar" role="toolbar" aria-label="Thao tác key">
+        <button class="btn" type="button" onclick="switchTab('create','single')">＋ Tạo key</button>
+        <button class="btn" type="button" onclick="openCustomKeyCreator()">＋ Tạo key tĩnh</button>
+        <button class="btn requires-single" type="button" data-key-action="verify" onclick="runSelectedKeyAction('verify')" disabled>Xác thực</button>
+        <button class="btn requires-single" type="button" data-key-action="info" onclick="runSelectedKeyAction('info')" disabled>Tra cứu</button>
+        <button class="btn requires-single" type="button" data-key-action="reset" onclick="runSelectedKeyAction('reset')" disabled>Reset thiết bị</button>
+        <button class="btn requires-single" type="button" data-key-action="extend" onclick="runSelectedKeyAction('extend')" disabled>Gia hạn</button>
+        <button class="btn danger" type="button" onclick="deleteSelectedKeys()">Xóa đã chọn (<span id="selectedKeyCount">0</span>)</button>
+        <button class="btn danger" type="button" onclick="deleteExpiredKeys()">Xóa key hết hạn</button>
+        <span class="toolbar-spacer"></span>
+        <button class="btn" type="button" onclick="switchTab('create','bulk')">Tạo hàng loạt</button>
+      </div>
+      <div id="manageOut" class="out" style="display:none;"></div>
+      <div class="divider"></div>
+      <div hidden>
+        <input type="hidden" id="mg_key">
+        <input type="hidden" id="mg_device">
+        <input type="hidden" id="mg_package_id">
+        <input type="hidden" id="mg_extend_days" value="30">
       </div>
       <div class="table-toolbar">
         <div class="toolbar-actions">
@@ -652,41 +673,21 @@
     </div>
   </div>
 
-  <!-- MANAGE KEY -->
-  <section class="tab-panel" id="tab-manage" style="display:none;">
-    <div class="panel">
-      <h2>Xác thực / Tra cứu key</h2>
-      <div class="grid">
-        <div class="field">
-          <label>Key code</label>
-          <input type="text" id="mg_key" placeholder="KEY-XXXXXX-XXXX">
+  <div class="success-operation-modal" id="successOperationModal" hidden onclick="if(event.target===this)closeSuccessModal()">
+    <div class="success-operation-dialog" role="dialog" aria-modal="true" aria-labelledby="successOperationTitle">
+      <div class="created-keys-header">
+        <div>
+          <h2 id="successOperationTitle">Tạo thành công</h2>
+          <p id="successOperationSummary" class="created-keys-summary"></p>
         </div>
-        <div class="field">
-          <label>Device ID (cho verify)</label>
-          <input type="text" id="mg_device" placeholder="tự sinh nếu để trống">
-        </div>
-        <div class="field">
-          <label>Mã gói ứng dụng (nếu key đã gắn gói)</label>
-          <input type="text" id="mg_package_id" placeholder="ví dụ: ios-v2">
-        </div>
+        <button class="btn secondary" type="button" onclick="closeSuccessModal()" aria-label="Đóng">Đóng</button>
       </div>
-      <div class="row" style="margin-top:16px;">
-        <button class="btn" onclick="verifyKey()">Verify</button>
-        <button class="btn secondary" onclick="keyInfo()">Xem thông tin</button>
-        <button class="btn secondary" onclick="resetKeyDevices()">Reset thiết bị</button>
-        <button class="btn danger" onclick="deleteKey()">Xóa key</button>
+      <dl class="success-operation-details" id="successOperationDetails"></dl>
+      <div class="created-keys-actions">
+        <button class="btn" type="button" onclick="closeSuccessModal()">Hoàn tất</button>
       </div>
-      <div class="row" style="margin-top:12px;">
-        <div class="field">
-          <label>Gia hạn (số ngày)</label>
-          <input type="number" id="mg_extend_days" value="30" style="max-width:140px;">
-        </div>
-        <button class="btn secondary" onclick="extendKey()">Gia hạn key</button>
-      </div>
-      <div id="manageOut" class="out" style="display:none;"></div>
     </div>
-
-  </section>
+  </div>
 
   <!-- DEVICES / UDID -->
   <section class="tab-panel" id="tab-devices" style="display:none;">
@@ -709,24 +710,6 @@
       </div>
     </div>
 
-    <div class="panel">
-      <h2>Liên kết thủ công</h2>
-      <p class="sub">Nếu đã có UDID sẵn (copy từ danh sách trên), gắn nhanh với 1 key ở đây mà không cần vào lại trang lấy UDID.</p>
-      <div class="grid">
-        <div class="field">
-          <label>UDID</label>
-          <input type="text" id="dv_udid" placeholder="dán UDID vào đây">
-        </div>
-        <div class="field">
-          <label>Key</label>
-          <input type="text" id="dv_key" placeholder="KEY-XXXXXX-XXXX">
-        </div>
-      </div>
-      <div class="row" style="margin-top:16px;">
-        <button class="btn" onclick="linkDeviceKey()">Liên kết UDID với key</button>
-      </div>
-      <div id="linkOut" class="out" style="display:none;"></div>
-    </div>
   </section>
 
   <footer>AuthAPI Dashboard · giao diện tĩnh, gọi trực tiếp các API cùng origin</footer>
@@ -737,6 +720,8 @@ const $ = (id) => document.getElementById(id);
 const tablePages = { keys: 1, devices: 1 };
 const selectedKeyCodes = new Set();
 let packagesPage = 1;
+let activeTab = 'overview';
+let createReturnTab = 'overview';
 const packageColumns = [
   ['name', 'Tên package'],
   ['id', 'Mã package'],
@@ -749,33 +734,47 @@ const packageColumns = [
 const visiblePackageColumns = new Set(packageColumns.map(([id]) => id));
 
 /* ---------- tabs ---------- */
-function switchTab(tab) {
-  document.querySelectorAll('#tabs button').forEach(button => button.classList.toggle('active', button.dataset.tab === tab));
-  document.querySelectorAll('.tab-panel').forEach(panel => {
-    panel.style.display = panel.id === 'tab-' + tab && tab !== 'create' ? 'block' : 'none';
-  });
+function switchTab(tab, createMode = 'single') {
   if (tab === 'create') {
+    createReturnTab = activeTab;
     $('tab-create').style.display = 'block';
-    openCreateModal();
+    openCreateModal(createMode);
     loadActivePackages();
     return;
   }
+  activeTab = tab;
+  document.querySelectorAll('#tabs button').forEach(button => button.classList.toggle('active', button.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.style.display = panel.id === 'tab-' + tab ? 'block' : 'none';
+  });
   if (tab === 'devices') loadUdidDevices();
   if (tab === 'keys') loadAllKeys();
   if (tab === 'packages') loadPackages();
 }
 
-function openCreateModal() {
+function openCreateModal(mode = 'single') {
   $('createModal').hidden = false;
   document.body.classList.add('modal-open');
-  setCreateMode('single');
-  $('ck_duration').focus();
+  setCreateMode(mode);
+}
+
+function openCustomKeyCreator() {
+  switchTab('create', 'single');
+  $('ck_custom').focus();
+}
+
+function runSelectedKeyAction(action) {
+  if (selectedKeyCodes.size !== 1) {
+    showOut($('manageOut'), 'Chọn đúng một key trong bảng để dùng thao tác này.', false);
+    return;
+  }
+  openKeyTools([...selectedKeyCodes][0], action);
 }
 
 function closeCreateModal() {
   $('createModal').hidden = true;
   document.body.classList.remove('modal-open');
-  switchTab('overview');
+  switchTab(createReturnTab);
 }
 
 function setCreateMode(mode) {
@@ -813,6 +812,30 @@ function openCreatedKeysModal(title, summary, keys) {
 
 function closeCreatedKeysModal() {
   $('createdKeysModal').hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function openSuccessModal(title, summary, details) {
+  const list = $('successOperationDetails');
+  list.replaceChildren();
+  Object.entries(details).forEach(([label, value]) => {
+    const row = document.createElement('div');
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const description = document.createElement('dd');
+    description.textContent = value || '—';
+    row.append(term, description);
+    list.append(row);
+  });
+  $('successOperationTitle').textContent = title;
+  $('successOperationSummary').textContent = summary;
+  $('successOperationModal').hidden = false;
+  document.body.classList.add('modal-open');
+  $('successOperationModal').querySelector('button').focus();
+}
+
+function closeSuccessModal() {
+  $('successOperationModal').hidden = true;
   document.body.classList.remove('modal-open');
 }
 
@@ -968,14 +991,23 @@ async function createPackage() {
     method: 'POST',
     body: JSON.stringify(body)
   });
-  showOut($('packagesActionOut'), data, ok && data.success);
   if (ok && data.success) {
+    $('packagesActionOut').style.display = 'none';
     $('packageNewId').value = '';
     $('packageNewName').value = '';
     $('packageNewMessage').value = '';
     $('packageNewUpdateUrl').value = '';
     closePackageCreateModal();
     await Promise.all([loadPackages(), loadActivePackages()]);
+    const appPackage = data.package || body;
+    openSuccessModal('Tạo package thành công', 'Package mới đã được tạo và sẵn sàng sử dụng.', {
+      'Tên package': appPackage.name,
+      'Mã package': appPackage.id,
+      'Trạng thái': appPackage.enabled === false ? 'Đã tắt' : 'Đang bật',
+      'Link cập nhật': appPackage.updateUrl || 'Chưa thiết lập'
+    });
+  } else {
+    showOut($('packagesActionOut'), data, false);
   }
 }
 
@@ -1185,6 +1217,11 @@ function updateTablePage(name, matchingRows, pageSize) {
 function updateKeySelectionSummary() {
   $('selectedKeyCount').textContent = selectedKeyCodes.size;
   $('selectedKeySummary').textContent = selectedKeyCodes.size;
+  document.querySelectorAll('.key-actions-toolbar .requires-single').forEach(button => {
+    button.disabled = selectedKeyCodes.size !== 1;
+  });
+  const deleteSelectedButton = document.querySelector('.key-actions-toolbar button[onclick="deleteSelectedKeys()"]');
+  if (deleteSelectedButton) deleteSelectedButton.disabled = selectedKeyCodes.size === 0;
 }
 
 function toggleKeySelection(key, checked) {
@@ -1224,9 +1261,22 @@ function changeTablePage(name, offset) {
   if (table) renderTablePage(name, [...table.querySelectorAll('tbody tr')]);
 }
 
-function openKeyTools(key) {
+function openKeyTools(key, action) {
   $('mg_key').value = key;
-  switchTab('manage');
+  if (action === 'verify') return verifyKey();
+  if (action === 'info') return keyInfo();
+  if (action === 'reset') return resetKeyDevices();
+  if (action === 'delete') return deleteKey();
+  if (action === 'extend') {
+    const input = window.prompt('Gia hạn key thêm bao nhiêu ngày?', '30');
+    if (input === null) return;
+    const days = Number(input);
+    if (!Number.isInteger(days) || days < 1) {
+      window.alert('Số ngày gia hạn phải là số nguyên lớn hơn 0.');
+      return;
+    }
+    return extendKey(days);
+  }
 }
 
 function exportTable(tableId, filename) {
@@ -1428,9 +1478,8 @@ async function deleteExpiredKeys() {
   }
 }
 
-async function extendKey() {
+async function extendKey(days = Number($('mg_extend_days').value)) {
   const key = $('mg_key').value.trim();
-  const days = Number($('mg_extend_days').value);
   const { ok, data } = await api('/api/extend-key', { method: 'POST', body: JSON.stringify({ key, days }) });
   showOut($('manageOut'), data, ok && data.success);
   if (ok && data.success) {
@@ -1461,7 +1510,7 @@ async function loadAllKeys() {
     const now = new Date();
     wrap.innerHTML = `<table id="keysTable"><thead><tr>
       <th class="select-column"><input id="keysSelectPage" type="checkbox" aria-label="Chọn tất cả key trên trang" onchange="toggleVisibleKeySelection(this.checked)"></th>
-      <th>Key</th><th>Thiết bị đã dùng</th><th>Ngày tạo</th><th>Hết hạn</th><th>Thời lượng</th><th>Kích hoạt</th><th>Gói</th><th>Nguồn</th><th>Trạng thái</th><th>Thao tác</th>
+      <th>Key</th><th>Thiết bị đã dùng</th><th>Ngày tạo</th><th>Hết hạn</th><th>Thời lượng</th><th>Kích hoạt</th><th>Gói</th><th>Nguồn</th><th>Trạng thái</th>
     </tr></thead><tbody>${data.map(k => {
       const expiresAt = k.is_permanent === true ? null : new Date(k.expires_at);
       const expired = k.is_permanent !== true && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now);
@@ -1488,7 +1537,6 @@ async function loadAllKeys() {
         <td data-label="Gói">${escapeHtml(k.package_id || k.package || k.type || '—')}</td>
         <td data-label="Nguồn">${escapeHtml(k.owner_username || k.owner_id || 'public')}</td>
         <td data-label="Trạng thái"><span class="tag ${expired?'expired':'live'}">${expired?'hết hạn':k.is_permanent === true?'vĩnh viễn':'còn hạn'}</span></td>
-        <td data-label="Thao tác"><button class="btn secondary" data-key="${escapeHtml(k.key_code || '')}" onclick="openKeyTools(this.dataset.key)">Quản lý</button></td>
       </tr>`;
     }).join('')}</tbody></table>`;
     filterTable('keysTable', 'keysSearch');
@@ -1532,24 +1580,6 @@ async function loadUdidDevices() {
     wrap.innerHTML = '<div class="empty-state">Lỗi kết nối khi tải danh sách thiết bị. Vui lòng thử lại.</div>';
     resetTablePage('devices');
   }
-}
-
-async function linkDeviceKey() {
-  const udid = $('dv_udid').value.trim();
-  const key = $('dv_key').value.trim();
-  if (!udid || !key) { showOut($('linkOut'), 'Nhập cả UDID và key.', false); return; }
-
-  // 1) xác thực + gắn thiết bị vào key qua endpoint chính
-  const verify = await api('/api/verify-key', { method: 'POST', body: JSON.stringify({ key, device_id: udid }) });
-  if (!verify.data.success) {
-    showOut($('linkOut'), verify.data, false);
-    return;
-  }
-  // 2) ghi UDID <-> key vào danh sách thiết bị để hiển thị
-  const link = await api('/api/udid/link-key', { method: 'POST', body: JSON.stringify({ udid, key }) });
-  showOut($('linkOut'), link.data, link.ok && link.data.success);
-  loadUdidDevices();
-  loadOverview();
 }
 
 /* ---------- init ---------- */
