@@ -984,6 +984,7 @@ app.post('/api/create-key', async (req, res) => {
       created_at: createdAt,
       expires_at: expiresAt,
       is_permanent: isPermanent,
+      is_disabled: false,
       allowed_devices: Number(devices),
       devices: [],
       owner_id: 'public',
@@ -1059,6 +1060,7 @@ app.post('/api/bulk-create-keys', async (req, res) => {
         created_at: createdAt,
         expires_at: expiresAt,
         is_permanent: isPermanent,
+        is_disabled: false,
         allowed_devices: Number(devices),
         devices: [],
         owner_id: 'public',
@@ -1141,6 +1143,9 @@ app.post('/api/udid/start', async (req, res) => {
     if (!license) {
       return res.status(404).json({ success: false, message: 'Key không tồn tại.' });
     }
+    if (isKeyDisabled(license)) {
+      return res.status(403).json({ success: false, message: 'Key đã bị vô hiệu hóa.' });
+    }
     if (license.package_id || normalizedPackageId) {
       if (!normalizedPackageId || license.package_id !== normalizedPackageId) {
         return res.status(403).json({ success: false, message: 'Key không được gán cho gói ứng dụng này.' });
@@ -1181,7 +1186,7 @@ app.get('/api/my-stats', async (req, res) => {
 
     const stats = {
       totalKeys: keys.length,
-      activeKeys: keys.filter(k => !isKeyExpired(k, now.getTime())).length,
+      activeKeys: keys.filter(k => !isKeyDisabled(k) && !isKeyExpired(k, now.getTime())).length,
       expiredKeys: keys.filter(k => isKeyExpired(k, now.getTime())).length,
       keyLimit: 'Không giới hạn',
       keysRemaining: 'Không giới hạn',
@@ -1283,6 +1288,14 @@ app.post('/api/app/check-package', async (req, res) => {
         allowed: false,
         code: 'KEY_NOT_ASSIGNED_TO_PACKAGE',
         message: 'This key is not assigned to this app package.'
+      });
+    }
+    if (isKeyDisabled(license)) {
+      return res.json({
+        success: true,
+        allowed: false,
+        code: 'KEY_DISABLED',
+        message: 'This key has been disabled.'
       });
     }
     if (signValue(license.key_code) !== license.signature) {
@@ -1517,11 +1530,108 @@ function isPermanentKey(key) {
   return key?.is_permanent === true;
 }
 
+function isKeyDisabled(key) {
+  return key?.is_disabled === true;
+}
+
 function isKeyExpired(key, now = Date.now()) {
   if (isPermanentKey(key)) return false;
   const expiresAt = new Date(key?.expires_at).getTime();
   return !Number.isFinite(expiresAt) || expiresAt <= now;
 }
+
+app.patch('/api/admin/keys/:keyCode', async (req, res) => {
+  try {
+    const keyCode = typeof req.params.keyCode === 'string' ? req.params.keyCode.trim() : '';
+    const keys = await loadKeys();
+    const found = keys.find(key => key.key_code === keyCode);
+    if (!found) return res.status(404).json({ success: false, message: 'Không tìm thấy key' });
+
+    const body = req.body || {};
+    const has = field => Object.prototype.hasOwnProperty.call(body, field);
+    const updatedFields = [];
+
+    if (has('is_disabled')) {
+      if (typeof body.is_disabled !== 'boolean') {
+        return res.status(400).json({ success: false, message: 'is_disabled phải là true hoặc false' });
+      }
+      found.is_disabled = body.is_disabled;
+      updatedFields.push('is_disabled');
+    }
+
+    if (has('type')) {
+      const type = typeof body.type === 'string' ? body.type.trim() : '';
+      if (!type || type.length > 40) {
+        return res.status(400).json({ success: false, message: 'Loại key phải có từ 1 đến 40 ký tự' });
+      }
+      found.type = type;
+      updatedFields.push('type');
+    }
+
+    if (has('packageId')) {
+      if (typeof body.packageId !== 'string') {
+        return res.status(400).json({ success: false, message: 'packageId phải là chuỗi' });
+      }
+      const packageId = body.packageId.trim();
+      if (packageId && packageId !== found.package_id) {
+        const appPackage = (await loadPackages()).find(item => item.id === packageId && item.enabled);
+        if (!appPackage) {
+          return res.status(400).json({ success: false, message: 'Vui lòng chọn một gói ứng dụng đang bật' });
+        }
+      }
+      if (packageId) found.package_id = packageId;
+      else delete found.package_id;
+      updatedFields.push('package_id');
+    }
+
+    if (has('allowed_devices')) {
+      const devices = Number(body.allowed_devices);
+      const usedDevices = Array.isArray(found.devices) ? found.devices.length : 0;
+      if (!Number.isInteger(devices) || devices < 1 || devices < usedDevices) {
+        return res.status(400).json({
+          success: false,
+          message: `Số thiết bị tối đa phải là số nguyên từ ${Math.max(1, usedDevices)} trở lên`
+        });
+      }
+      found.allowed_devices = devices;
+      updatedFields.push('allowed_devices');
+    }
+
+    if (has('expiresAt')) {
+      if (body.expiresAt === null) {
+        found.is_permanent = true;
+        found.expires_at = null;
+      } else {
+        const expiresAt = typeof body.expiresAt === 'string' ? new Date(body.expiresAt) : null;
+        if (!expiresAt || !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+          return res.status(400).json({ success: false, message: 'Ngày hết hạn phải nằm trong tương lai' });
+        }
+        const config = await loadConfig();
+        const maxDays = config.settings?.max_key_days || 365;
+        const durationDays = (expiresAt.getTime() - Date.now()) / 86400000;
+        if (durationDays > maxDays && !(maxDays >= 365 && durationDays <= 366)) {
+          return res.status(400).json({ success: false, message: `Thời hạn tối đa ${maxDays} ngày` });
+        }
+        found.is_permanent = false;
+        found.expires_at = expiresAt.toISOString();
+      }
+      updatedFields.push('expires_at');
+    }
+
+    if (updatedFields.length === 0) {
+      return res.status(400).json({ success: false, message: 'Không có thông tin key nào cần cập nhật' });
+    }
+    if (!await saveKeys(keys)) {
+      return res.status(500).json({ success: false, message: 'Không thể lưu thay đổi key' });
+    }
+
+    await logActivity('update_key', 'public', 'public', { keyCode, fields: updatedFields });
+    res.json({ success: true, message: 'Cập nhật key thành công', key: found });
+  } catch (err) {
+    console.error('Update key error:', err);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 app.post('/api/extend-key', async (req, res) => {
   try {
@@ -1725,6 +1835,14 @@ app.post('/api/verify-key', async (req, res) => {
       });
     }
 
+    if (isKeyDisabled(found)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Key đã bị vô hiệu hóa',
+        error_code: 'KEY_DISABLED'
+      });
+    }
+
     if (found.package_id || packageId) {
       if (typeof packageId !== 'string' || found.package_id !== packageId) {
         return res.status(403).json({
@@ -1835,6 +1953,7 @@ app.post('/api/key-info', async (req, res) => {
         created_at: found.created_at,
         expires_at: expiresAt,
         is_permanent: isPermanent,
+        is_disabled: isKeyDisabled(found),
         is_expired: isExpired,
         days_remaining: daysRemaining,
         devices_used: Array.isArray(found.devices) ? found.devices.length : 0,
@@ -1842,8 +1961,8 @@ app.post('/api/key-info', async (req, res) => {
         total_verifications: found.total_verifications || 0,
         last_verified: found.last_verified || 'Never',
         is_custom: found.is_custom || false,
-        active: !isExpired,
-        status: isExpired ? 'expired' : 'active'
+        active: !isExpired && !isKeyDisabled(found),
+        status: isKeyDisabled(found) ? 'disabled' : isExpired ? 'expired' : 'active'
       }
     });
   } catch(err) {
@@ -2059,7 +2178,7 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
       activeUsers: users.filter(u => u.isActive && !u.isBanned).length,
       bannedUsers: users.filter(u => u.isBanned).length,
       totalKeys: keys.length,
-      activeKeys: keys.filter(k => !isKeyExpired(k, now.getTime())).length,
+      activeKeys: keys.filter(k => !isKeyDisabled(k) && !isKeyExpired(k, now.getTime())).length,
       expiredKeys: keys.filter(k => isKeyExpired(k, now.getTime())).length,
       totalDevices: devices.length,
       totalVerifications: keys.reduce((sum, k) => sum + (k.total_verifications || 0), 0),
@@ -2254,6 +2373,14 @@ app.post("/api/device-uid/register", async (req, res) => {
         });
       }
 
+      if (isKeyDisabled(found)) {
+        return res.status(403).json({
+          success: false,
+          message: "Key đã bị vô hiệu hóa",
+          error_code: "KEY_DISABLED"
+        });
+      }
+
       if (isKeyExpired(found)) {
         return res.status(400).json({
           success: false,
@@ -2347,6 +2474,7 @@ app.post("/api/device-uid/lookup", async (req, res) => {
         type:            k.type,
         expires_at:      k.expires_at,
         is_permanent:    isPermanentKey(k),
+        is_disabled:     isKeyDisabled(k),
         is_expired:      isKeyExpired(k, now.getTime()),
         days_remaining:  isPermanentKey(k) ? null : Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
         devices_used:    k.devices.length,
@@ -2397,6 +2525,7 @@ app.get("/api/device-uid/my-keys", async (req, res) => {
         type:            k.type,
         expires_at:      k.expires_at,
         is_permanent:    isPermanentKey(k),
+        is_disabled:     isKeyDisabled(k),
         is_expired:      isKeyExpired(k, now.getTime()),
         days_remaining:  isPermanentKey(k) ? null : Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
         devices_used:    k.devices.length,
@@ -2451,7 +2580,7 @@ app.get("/api/admin/devices", requireAdmin, async (req, res) => {
       key_count:       d.keys.length,
       active_key_count: d.keys.filter(kc => {
         const k = keys.find(k => k.key_code === kc);
-        return k && !isKeyExpired(k, now.getTime());
+        return k && !isKeyDisabled(k) && !isKeyExpired(k, now.getTime());
       }).length
     }));
 

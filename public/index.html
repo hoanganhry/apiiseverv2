@@ -318,6 +318,20 @@
   .key-actions-toolbar button.btn:not(.danger):hover{background:#5559e8; color:#fff;}
   .key-actions-toolbar button.btn.requires-single:disabled{opacity:.45; box-shadow:none;}
   .key-actions-toolbar .toolbar-spacer{flex:1 0 8px;}
+  .key-menu-cell{position:relative; width:42px; min-width:42px;}
+  .key-menu-trigger{width:30px; height:30px; padding:0!important; border:1px solid #e3e6ee!important; background:#fff!important; color:#596477!important; border-radius:5px; font-size:20px!important; line-height:1; cursor:pointer;}
+  .key-menu-popover{position:absolute; z-index:8; top:calc(100% + 3px); right:8px; width:170px; padding:5px; background:#fff; border:1px solid #e3e6ee; border-radius:7px; box-shadow:0 6px 20px rgba(32,43,68,.18);}
+  .key-menu-popover[hidden]{display:none;}
+  .key-menu-popover button{display:block; width:100%; border:0; border-radius:4px; padding:8px 9px; background:transparent; color:#596477; text-align:left; font:12px var(--sans); cursor:pointer;}
+  .key-menu-popover button:hover{background:#f3f4ff; color:var(--amber);}
+  .key-menu-popover button.danger{color:#d94c50;}
+  .key-edit-modal{position:fixed; inset:0; z-index:32; display:flex; align-items:center; justify-content:center; padding:20px; background:rgba(25,34,52,.48);}
+  .key-edit-modal[hidden]{display:none;}
+  .key-edit-dialog{width:min(640px,100%); max-height:calc(100vh - 40px); overflow:auto; background:#fff; border:1px solid #e8eaf0; border-radius:8px; padding:20px; box-shadow:0 16px 50px rgba(22,32,50,.22);}
+  .key-edit-dialog header{position:static; height:auto; background:transparent; padding:0; margin-bottom:16px; box-shadow:none;}
+  .key-edit-dialog header h2{margin:0; color:#596477; font-size:17px; font-weight:500;}
+  .key-edit-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px;}
+  #editKeyExpiryField[hidden]{display:none;}
   body.modal-open{overflow:hidden;}
   table{min-width:650px; margin-top:0; font:11px var(--sans);}
   th,td{padding:11px 10px; border-bottom:1px solid #edf0f5;}
@@ -366,8 +380,8 @@
     tr{display:table-row; padding:0; border:0;}
     td{display:table-cell; padding:9px 8px;}
     td::before{content:none;}
-    .create-modal-overlay,.created-keys-modal,.success-operation-modal{padding:10px;}
-    .create-dialog,.created-keys-dialog,.success-operation-dialog{max-height:calc(100vh - 20px); padding:14px;}
+    .create-modal-overlay,.created-keys-modal,.success-operation-modal,.key-edit-modal{padding:10px;}
+    .create-dialog,.created-keys-dialog,.success-operation-dialog,.key-edit-dialog{max-height:calc(100vh - 20px); padding:14px;}
     .created-key-row{align-items:flex-start;}
   }
 </style>
@@ -689,6 +703,47 @@
     </div>
   </div>
 
+  <div class="key-edit-modal" id="keyEditModal" hidden onclick="if(event.target===this)closeKeyEditModal()">
+    <form class="key-edit-dialog" onsubmit="event.preventDefault();saveKeyEdit()">
+      <header><h2>Chỉnh sửa key</h2></header>
+      <div class="grid">
+        <div class="field">
+          <label>Mã key (không thể sửa)</label>
+          <input id="editKeyCode" type="text" readonly>
+        </div>
+        <div class="field">
+          <label>Loại key</label>
+          <input id="editKeyType" type="text" maxlength="40" required>
+        </div>
+        <div class="field">
+          <label>Gói ứng dụng</label>
+          <select id="editKeyPackage"></select>
+        </div>
+        <div class="field">
+          <label>Số thiết bị tối đa</label>
+          <input id="editKeyDevices" type="number" min="1" step="1" required>
+        </div>
+        <div class="field">
+          <label>Thời hạn</label>
+          <select id="editKeyDurationMode" onchange="toggleEditKeyExpiry()">
+            <option value="keep">Giữ nguyên thời hạn hiện tại</option>
+            <option value="date">Đặt ngày hết hạn mới</option>
+            <option value="permanent">Vĩnh viễn</option>
+          </select>
+        </div>
+        <div class="field" id="editKeyExpiryField">
+          <label>Ngày hết hạn</label>
+          <input id="editKeyExpiresAt" type="datetime-local" required>
+        </div>
+      </div>
+      <div id="keyEditOut" class="out" style="display:none;"></div>
+      <div class="key-edit-actions">
+        <button class="btn secondary" type="button" onclick="closeKeyEditModal()">Hủy</button>
+        <button class="btn" type="submit">Lưu thay đổi</button>
+      </div>
+    </form>
+  </div>
+
   <!-- DEVICES / UDID -->
   <section class="tab-panel" id="tab-devices" style="display:none;">
     <div class="panel">
@@ -719,6 +774,7 @@
 const $ = (id) => document.getElementById(id);
 const tablePages = { keys: 1, devices: 1 };
 const selectedKeyCodes = new Set();
+const keyRecords = new Map();
 let packagesPage = 1;
 let activeTab = 'overview';
 let createReturnTab = 'overview';
@@ -1171,7 +1227,9 @@ function filterTable(tableId, inputId) {
   const query = $(inputId).value.trim().toLocaleLowerCase('vi');
   const rows = [...table.querySelectorAll('tbody tr')];
   rows.forEach(row => {
-    row.dataset.filteredOut = String(!row.textContent.toLocaleLowerCase('vi').includes(query));
+    const searchableRow = row.cloneNode(true);
+    searchableRow.querySelectorAll('.key-menu').forEach(menu => menu.remove());
+    row.dataset.filteredOut = String(!searchableRow.textContent.toLocaleLowerCase('vi').includes(query));
   });
   const pageName = tableId === 'keysTable' ? 'keys' : 'devices';
   tablePages[pageName] = 1;
@@ -1279,6 +1337,178 @@ function openKeyTools(key, action) {
   }
 }
 
+function toggleKeyMenu(event, button) {
+  event.stopPropagation();
+  const currentMenu = button.parentElement.querySelector('.key-menu-popover');
+  document.querySelectorAll('.key-menu-popover').forEach(menu => {
+    if (menu !== currentMenu) {
+      menu.hidden = true;
+      menu.parentElement.querySelector('.key-menu-trigger').setAttribute('aria-expanded', 'false');
+    }
+  });
+  currentMenu.hidden = !currentMenu.hidden;
+  button.setAttribute('aria-expanded', String(!currentMenu.hidden));
+}
+
+function closeKeyMenus() {
+  document.querySelectorAll('.key-menu-popover').forEach(menu => {
+    menu.hidden = true;
+    menu.parentElement.querySelector('.key-menu-trigger').setAttribute('aria-expanded', 'false');
+  });
+}
+
+document.addEventListener('click', event => {
+  if (!event.target.closest('.key-menu')) closeKeyMenus();
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    closeKeyMenus();
+    closeKeyEditModal();
+  }
+});
+
+async function handleKeyMenuAction(keyCode, action) {
+  closeKeyMenus();
+  if (action === 'edit') return openKeyEditModal(keyCode);
+  if (action === 'toggle') return toggleKeyDisabled(keyCode);
+  if (action === 'delete') return openKeyTools(keyCode, 'delete');
+}
+
+async function openKeyEditModal(keyCode) {
+  const key = keyRecords.get(keyCode);
+  if (!key) {
+    showOut($('manageOut'), 'Không tìm thấy dữ liệu key. Hãy tải lại danh sách.', false);
+    return;
+  }
+  let packagesResult;
+  try {
+    packagesResult = await api('/api/app/packages');
+  } catch (error) {
+    console.error('Không thể tải gói để chỉnh sửa key:', error);
+    showOut($('manageOut'), error.message, false);
+    return;
+  }
+  if (!packagesResult.ok || !packagesResult.data.success || !Array.isArray(packagesResult.data.packages)) {
+    showOut($('manageOut'), packagesResult.data, false);
+    return;
+  }
+
+  const packageSelect = $('editKeyPackage');
+  packageSelect.replaceChildren(new Option('Không gắn gói', ''));
+  packagesResult.data.packages.forEach(appPackage => {
+    packageSelect.add(new Option(`${appPackage.name} (${appPackage.id})`, appPackage.id));
+  });
+  if (key.package_id && ![...packageSelect.options].some(option => option.value === key.package_id)) {
+    packageSelect.add(new Option(`${key.package_id} (gói hiện tại đã tắt)`, key.package_id));
+  }
+
+  $('editKeyCode').value = key.key_code;
+  $('editKeyType').value = key.type || 'KEY';
+  packageSelect.value = key.package_id || '';
+  $('editKeyDevices').value = Math.max(Number(key.allowed_devices) || 1, Array.isArray(key.devices) ? key.devices.length : 0);
+  $('editKeyDurationMode').value = key.is_permanent === true ? 'permanent' : 'keep';
+  if (key.expires_at) {
+    const expiresAt = new Date(key.expires_at);
+    $('editKeyExpiresAt').value = new Date(expiresAt.getTime() - expiresAt.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  } else {
+    $('editKeyExpiresAt').value = '';
+  }
+  $('keyEditOut').style.display = 'none';
+  toggleEditKeyExpiry();
+  $('keyEditModal').hidden = false;
+  document.body.classList.add('modal-open');
+  $('editKeyType').focus();
+}
+
+function closeKeyEditModal() {
+  const modal = $('keyEditModal');
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  document.body.classList.remove('modal-open');
+}
+
+function toggleEditKeyExpiry() {
+  const setDate = $('editKeyDurationMode').value === 'date';
+  $('editKeyExpiryField').hidden = !setDate;
+  $('editKeyExpiresAt').required = setDate;
+}
+
+async function saveKeyEdit() {
+  const keyCode = $('editKeyCode').value;
+  const expiryMode = $('editKeyDurationMode').value;
+  const expiryInput = $('editKeyExpiresAt').value;
+  const expiryDate = expiryInput ? new Date(expiryInput) : null;
+  if (expiryMode === 'date' &&
+      (!expiryDate || !Number.isFinite(expiryDate.getTime()))) {
+    showOut($('keyEditOut'), 'Chọn ngày hết hạn hợp lệ hoặc đặt key vĩnh viễn.', false);
+    return;
+  }
+  const body = {
+    type: $('editKeyType').value.trim(),
+    packageId: $('editKeyPackage').value,
+    allowed_devices: Number($('editKeyDevices').value)
+  };
+  if (expiryMode === 'permanent') body.expiresAt = null;
+  else if (expiryMode === 'date') body.expiresAt = expiryDate.toISOString();
+  let result;
+  try {
+    result = await api(`/api/admin/keys/${encodeURIComponent(keyCode)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    console.error('Không thể lưu thay đổi key:', error);
+    showOut($('keyEditOut'), error.message, false);
+    return;
+  }
+  const { ok, data } = result;
+  if (!ok || !data.success) {
+    showOut($('keyEditOut'), data, false);
+    return;
+  }
+  closeKeyEditModal();
+  await Promise.all([loadAllKeys(), loadOverview()]);
+  openSuccessModal('Key đã được cập nhật', `Đã lưu thay đổi cho ${keyCode}.`, {
+    'Loại key': body.type,
+    'Gói ứng dụng': body.packageId || 'Không gắn gói',
+    'Số thiết bị tối đa': String(body.allowed_devices),
+    'Thời hạn': expiryMode === 'keep'
+      ? keyRecords.get(keyCode)?.is_permanent ? 'Vĩnh viễn' : keyRecords.get(keyCode)?.expires_at || 'Không đổi'
+      : body.expiresAt ? new Date(body.expiresAt).toLocaleString('vi-VN') : 'Vĩnh viễn'
+  });
+}
+
+async function toggleKeyDisabled(keyCode) {
+  const key = keyRecords.get(keyCode);
+  if (!key) {
+    showOut($('manageOut'), 'Không tìm thấy dữ liệu key. Hãy tải lại danh sách.', false);
+    return;
+  }
+  const disable = key.is_disabled !== true;
+  if (!confirm(`${disable ? 'Vô hiệu hóa' : 'Bật lại'} key "${keyCode}"?`)) return;
+  let result;
+  try {
+    result = await api(`/api/admin/keys/${encodeURIComponent(keyCode)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_disabled: disable })
+    });
+  } catch (error) {
+    console.error('Không thể đổi trạng thái key:', error);
+    showOut($('manageOut'), error.message, false);
+    return;
+  }
+  const { ok, data } = result;
+  if (!ok || !data.success) {
+    showOut($('manageOut'), data, false);
+    return;
+  }
+  await Promise.all([loadAllKeys(), loadOverview()]);
+  openSuccessModal(disable ? 'Đã tắt key' : 'Đã bật key',
+    disable ? 'Key này sẽ không thể xác thực cho đến khi được bật lại.' : 'Key có thể xác thực trở lại.',
+    { 'Key': keyCode, 'Trạng thái': disable ? 'Đã tắt' : 'Đang bật' });
+}
+
 function exportTable(tableId, filename) {
   const table = $(tableId);
   if (!table) return;
@@ -1319,7 +1549,7 @@ async function loadOverview() {
 
     const keys = Array.isArray(keysRes.data) ? keysRes.data : [];
     const now = new Date();
-    const active = keys.filter(k => k.is_permanent === true || new Date(k.expires_at) > now).length;
+    const active = keys.filter(k => k.is_disabled !== true && (k.is_permanent === true || new Date(k.expires_at) > now)).length;
     const deviceCount = (devicesRes.data && devicesRes.data.count) || 0;
 
     $('overviewStats').querySelector('[data-stat="devices"]').textContent = deviceCount;
@@ -1497,6 +1727,8 @@ async function loadAllKeys() {
       resetTablePage('keys');
       return;
     }
+    keyRecords.clear();
+    data.forEach(key => keyRecords.set(key.key_code, key));
     const liveKeys = new Set(data.map(key => key.key_code));
     selectedKeyCodes.forEach(key => {
       if (!liveKeys.has(key)) selectedKeyCodes.delete(key);
@@ -1526,9 +1758,17 @@ async function loadAllKeys() {
         const capturedAt = device?.capturedAt ? new Date(device.capturedAt).toLocaleString('vi-VN') : '';
         return `<div class="mono-cell">${escapeHtml(uid)}</div>${description ? `<small>${escapeHtml(description)}</small>` : ''}${capturedAt ? `<small>Nhận UDID: ${escapeHtml(capturedAt)}</small>` : ''}`;
       }).join('') : '—';
+      const disabled = k.is_disabled === true;
       return `<tr>
         <td class="select-column"><input class="key-select" type="checkbox" data-key="${escapeHtml(k.key_code || '')}" aria-label="Chọn key ${escapeHtml(k.key_code || '')}" ${selectedKeyCodes.has(k.key_code) ? 'checked' : ''} onchange="toggleKeySelection(this.dataset.key,this.checked)"></td>
-        <td data-label="Key"><span class="mono-cell">${escapeHtml(k.key_code || '—')}</span></td>
+        <td data-label="Key"><div style="display:flex;align-items:center;gap:7px;"><span class="mono-cell">${escapeHtml(k.key_code || '—')}</span><div class="key-menu">
+          <button class="key-menu-trigger" type="button" aria-label="Thao tác key ${escapeHtml(k.key_code || '')}" aria-haspopup="true" aria-expanded="false" onclick="toggleKeyMenu(event,this)">⋯</button>
+          <div class="key-menu-popover" hidden>
+            <button type="button" data-key="${escapeHtml(k.key_code || '')}" onclick="handleKeyMenuAction(this.dataset.key,'edit')">Chỉnh sửa key</button>
+            <button type="button" data-key="${escapeHtml(k.key_code || '')}" onclick="handleKeyMenuAction(this.dataset.key,'toggle')">${disabled ? 'Bật lại key' : 'Tắt key'}</button>
+            <button class="danger" type="button" data-key="${escapeHtml(k.key_code || '')}" onclick="handleKeyMenuAction(this.dataset.key,'delete')">Xóa key</button>
+          </div>
+        </div></div></td>
         <td data-label="Thiết bị đã dùng">${deviceSummary}</td>
         <td data-label="Ngày tạo">${createdAt}</td>
         <td data-label="Hết hạn">${k.is_permanent === true ? 'Vĩnh viễn' : Number.isNaN(expiresAt.getTime()) ? '—' : expiresAt.toLocaleDateString('vi-VN')}</td>
@@ -1536,7 +1776,7 @@ async function loadAllKeys() {
         <td data-label="Kích hoạt">${(k.devices || []).length}/${Number(k.allowed_devices) || 0}</td>
         <td data-label="Gói">${escapeHtml(k.package_id || k.package || k.type || '—')}</td>
         <td data-label="Nguồn">${escapeHtml(k.owner_username || k.owner_id || 'public')}</td>
-        <td data-label="Trạng thái"><span class="tag ${expired?'expired':'live'}">${expired?'hết hạn':k.is_permanent === true?'vĩnh viễn':'còn hạn'}</span></td>
+        <td data-label="Trạng thái"><span class="tag ${disabled || expired?'expired':'live'}">${disabled?'đã tắt':expired?'hết hạn':k.is_permanent === true?'vĩnh viễn':'còn hạn'}</span></td>
       </tr>`;
     }).join('')}</tbody></table>`;
     filterTable('keysTable', 'keysSearch');
