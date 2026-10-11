@@ -28,51 +28,89 @@ function loadRecords() {
   try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); }
   catch { return []; }
 }
+
+function mergeDuplicateUdids(records) {
+  const merged = [];
+  const indexByUdid = new Map();
+  records.forEach(record => {
+    if (!record.udid) {
+      merged.push(record);
+      return;
+    }
+    const existingIndex = indexByUdid.get(record.udid);
+    if (existingIndex === undefined) {
+      indexByUdid.set(record.udid, merged.length);
+      merged.push(record);
+      return;
+    }
+    const existing = merged[existingIndex];
+    merged[existingIndex] = {
+      ...existing,
+      ...record,
+      linkedKey: record.linkedKey || existing.linkedKey,
+      linkedAt: record.linkedAt || existing.linkedAt
+    };
+  });
+  return merged;
+}
+
 function saveRecord(record) {
-  const records = loadRecords();
+  let records = mergeDuplicateUdids(loadRecords());
+  if (record.udid) {
+    const previous = [...records].reverse().find(item => item.udid === record.udid);
+    if (previous) {
+      record.linkedKey = previous.linkedKey || record.linkedKey;
+      record.linkedAt = previous.linkedAt || record.linkedAt;
+    }
+    records = records.filter(item => item.udid !== record.udid);
+  }
   records.push(record);
-  fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2));
+  fs.writeFileSync(DB_FILE, JSON.stringify(mergeDuplicateUdids(records), null, 2));
 }
 function findRecord(session) {
   return loadRecords().find(r => r.session === session);
 }
 function updateRecordByUdid(udid, patch, session = null) {
-  const records = loadRecords();
+  const records = mergeDuplicateUdids(loadRecords());
   for (let i = records.length - 1; i >= 0; i--) {
     if (records[i].udid === udid && (!session || records[i].session === session)) {
       Object.assign(records[i], patch);
       fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2));
       return records[i];
     }
-
-    function pruneGetKeyFlows() {
-      const now = Date.now();
-      for (const [flowId, flow] of getKeyFlows) {
-        if (flow.expiresAt <= now) getKeyFlows.delete(flowId);
-      }
-    }
-
-    function createGetKeyFlow(key, packageId) {
-      pruneGetKeyFlows();
-      const flowId = crypto.randomBytes(32).toString('hex');
-      getKeyFlows.set(flowId, {
-        key,
-        packageId: packageId || '',
-        expiresAt: Date.now() + GET_KEY_FLOW_TTL_MS
-      });
-      return flowId;
-    }
-
-    function getGetKeyFlow(flowId) {
-      pruneGetKeyFlows();
-      return getKeyFlows.get(flowId) || null;
-    }
-
-    function completeGetKeyFlow(flowId) {
-      return getKeyFlows.delete(flowId);
-    }
   }
   return null;
+}
+
+function linkDeviceToKey(udid, key) {
+  return updateRecordByUdid(udid, { linkedKey: key, linkedAt: new Date().toISOString() });
+}
+
+function pruneGetKeyFlows() {
+  const now = Date.now();
+  for (const [flowId, flow] of getKeyFlows) {
+    if (flow.expiresAt <= now) getKeyFlows.delete(flowId);
+  }
+}
+
+function createGetKeyFlow(key, packageId) {
+  pruneGetKeyFlows();
+  const flowId = crypto.randomBytes(32).toString('hex');
+  getKeyFlows.set(flowId, {
+    key,
+    packageId: packageId || '',
+    expiresAt: Date.now() + GET_KEY_FLOW_TTL_MS
+  });
+  return flowId;
+}
+
+function getGetKeyFlow(flowId) {
+  pruneGetKeyFlows();
+  return getKeyFlows.get(flowId) || null;
+}
+
+function completeGetKeyFlow(flowId) {
+  return getKeyFlows.delete(flowId);
 }
 
 // đơn giản: đọc <key>X</key><string>Y</string> từ plist XML thô, khỏi cần thư viện plist
@@ -270,9 +308,12 @@ module.exports = function udidRoutes(publicBaseUrl) {
   // -> dùng cho trang quản trị index.html, không public trong udid.html
   router.get('/api/udid/list', (req, res) => {
     try {
-      const records = loadRecords()
-        .filter(r => r.udid) // bỏ các lần capture lỗi không có UDID
-        .reverse();
+      const sourceRecords = loadRecords();
+      const mergedRecords = mergeDuplicateUdids(sourceRecords);
+      if (mergedRecords.length !== sourceRecords.length) {
+        fs.writeFileSync(DB_FILE, JSON.stringify(mergedRecords, null, 2));
+      }
+      const records = mergedRecords.filter(r => r.udid).reverse();
       res.json({ success: true, count: records.length, devices: records });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
@@ -303,7 +344,8 @@ module.exports = function udidRoutes(publicBaseUrl) {
     res.json({ success: true, device: updated });
   });
 
-  router.getDeviceRecords = () => loadRecords().filter(record => record.udid);
+  router.getDeviceRecords = () => mergeDuplicateUdids(loadRecords()).filter(record => record.udid);
+  router.linkDeviceToKey = linkDeviceToKey;
   router.createGetKeyFlow = createGetKeyFlow;
   router.getGetKeyFlow = getGetKeyFlow;
 
