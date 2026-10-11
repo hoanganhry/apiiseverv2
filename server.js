@@ -934,9 +934,10 @@ app.post('/api/create-key', async (req, res) => {
   try {
     const { duration = req.body?.days, durationUnit = 'day', timezoneOffset = 0, devices, type, customKey, packageId } = req.body || {};
     const amount = Number(duration);
-    const expiration = getKeyExpiration(amount, durationUnit, timezoneOffset);
+    const isPermanent = durationUnit === 'permanent';
+    const expiration = isPermanent ? null : getKeyExpiration(amount, durationUnit, timezoneOffset);
 
-    if (!expiration || !Number.isFinite(Number(devices)) || Number(devices) < 1 ||
+    if ((!isPermanent && !expiration) || !Number.isFinite(Number(devices)) || Number(devices) < 1 ||
         typeof packageId !== 'string' || !packageId.trim()) {
       return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ thông tin' });
     }
@@ -948,7 +949,7 @@ app.post('/api/create-key', async (req, res) => {
 
     const config = await loadConfig();
     const maxDays = config.settings?.max_key_days || 365;
-    if (exceedsKeyLifetimeLimit(expiration, maxDays, amount, durationUnit)) {
+    if (expiration && exceedsKeyLifetimeLimit(expiration, maxDays, amount, durationUnit)) {
       return res.status(400).json({ 
         success: false, 
         message: `Thời hạn tối đa ${maxDays} ngày` 
@@ -971,7 +972,7 @@ app.post('/api/create-key', async (req, res) => {
     }
 
     const createdAt = new Date().toISOString();
-    const expiresAt = expiration.toISOString();
+    const expiresAt = expiration?.toISOString() ?? null;
     const signature = signValue(keyCode);
 
     const keys = await loadKeys();
@@ -982,6 +983,7 @@ app.post('/api/create-key', async (req, res) => {
       signature,
       created_at: createdAt,
       expires_at: expiresAt,
+      is_permanent: isPermanent,
       allowed_devices: Number(devices),
       devices: [],
       owner_id: 'public',
@@ -1017,9 +1019,10 @@ app.post('/api/bulk-create-keys', async (req, res) => {
   try {
     const { count, duration = req.body?.days, durationUnit = 'day', timezoneOffset = 0, devices, type, packageId } = req.body || {};
     const amount = Number(duration);
-    const expiration = getKeyExpiration(amount, durationUnit, timezoneOffset);
+    const isPermanent = durationUnit === 'permanent';
+    const expiration = isPermanent ? null : getKeyExpiration(amount, durationUnit, timezoneOffset);
 
-    if (!Number.isInteger(Number(count)) || count < 1 || count > 100 || !expiration ||
+    if (!Number.isInteger(Number(count)) || count < 1 || count > 100 || (!isPermanent && !expiration) ||
         !Number.isFinite(Number(devices)) || Number(devices) < 1 ||
         typeof packageId !== 'string' || !packageId.trim()) {
       return res.status(400).json({ 
@@ -1035,7 +1038,7 @@ app.post('/api/bulk-create-keys', async (req, res) => {
 
     const config = await loadConfig();
     const maxDays = config.settings?.max_key_days || 365;
-    if (exceedsKeyLifetimeLimit(expiration, maxDays, amount, durationUnit)) {
+    if (expiration && exceedsKeyLifetimeLimit(expiration, maxDays, amount, durationUnit)) {
       return res.status(400).json({ success: false, message: `Thời hạn tối đa ${maxDays} ngày` });
     }
 
@@ -1045,7 +1048,7 @@ app.post('/api/bulk-create-keys', async (req, res) => {
     for (let i = 0; i < count; i++) {
       const keyCode = generateKey(type || "KEY");
       const createdAt = new Date().toISOString();
-      const expiresAt = expiration.toISOString();
+      const expiresAt = expiration?.toISOString() ?? null;
       const signature = signValue(keyCode);
 
       const record = {
@@ -1055,6 +1058,7 @@ app.post('/api/bulk-create-keys', async (req, res) => {
         signature,
         created_at: createdAt,
         expires_at: expiresAt,
+        is_permanent: isPermanent,
         allowed_devices: Number(devices),
         devices: [],
         owner_id: 'public',
@@ -1150,8 +1154,7 @@ app.post('/api/udid/start', async (req, res) => {
         });
       }
     }
-    if (!Number.isFinite(new Date(license.expires_at).getTime()) ||
-        new Date(license.expires_at).getTime() <= Date.now()) {
+    if (isKeyExpired(license)) {
       return res.status(403).json({ success: false, message: 'Key đã hết hạn.' });
     }
 
@@ -1178,8 +1181,8 @@ app.get('/api/my-stats', async (req, res) => {
 
     const stats = {
       totalKeys: keys.length,
-      activeKeys: keys.filter(k => new Date(k.expires_at) > now).length,
-      expiredKeys: keys.filter(k => new Date(k.expires_at) <= now).length,
+      activeKeys: keys.filter(k => !isKeyExpired(k, now.getTime())).length,
+      expiredKeys: keys.filter(k => isKeyExpired(k, now.getTime())).length,
       keyLimit: 'Không giới hạn',
       keysRemaining: 'Không giới hạn',
       totalKeysCreated: keys.length,
@@ -1290,8 +1293,7 @@ app.post('/api/app/check-package', async (req, res) => {
         message: 'This key failed validation.'
       });
     }
-    if (!Number.isFinite(new Date(license.expires_at).getTime()) ||
-        new Date(license.expires_at).getTime() <= Date.now()) {
+    if (isKeyExpired(license)) {
       return res.json({
         success: true,
         allowed: false,
@@ -1307,7 +1309,8 @@ app.post('/api/app/check-package', async (req, res) => {
       packageId: appPackage.id,
       message: appPackage.message || '',
       updateUrl: appPackage.updateUrl || null,
-      expiresAt: license.expires_at
+      expiresAt: license.expires_at,
+      isPermanent: isPermanentKey(license)
     });
   } catch (err) {
     console.error('Check app package error:', err);
@@ -1510,6 +1513,16 @@ function exceedsKeyLifetimeLimit(expiration, maxDays, duration, unit) {
   return !isOneCalendarYear;
 }
 
+function isPermanentKey(key) {
+  return key?.is_permanent === true;
+}
+
+function isKeyExpired(key, now = Date.now()) {
+  if (isPermanentKey(key)) return false;
+  const expiresAt = new Date(key?.expires_at).getTime();
+  return !Number.isFinite(expiresAt) || expiresAt <= now;
+}
+
 app.post('/api/extend-key', async (req, res) => {
   try {
     const { key, days } = req.body || {};
@@ -1518,6 +1531,10 @@ app.post('/api/extend-key', async (req, res) => {
     
     if (!found) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy key' });
+    }
+
+    if (isPermanentKey(found)) {
+      return res.json({ success: true, message: 'Key này đã có thời hạn vĩnh viễn' });
     }
 
     found.expires_at = new Date(
@@ -1645,10 +1662,9 @@ app.post('/api/delete-expired-keys', async (req, res) => {
   try {
     let keys = await loadKeys();
     const now = Date.now();
-    const expired = keys.filter(key => {
-      const expiresAt = new Date(key.expires_at).getTime();
-      return Number.isFinite(expiresAt) && expiresAt <= now;
-    });
+    const expired = keys.filter(key =>
+      !isPermanentKey(key) && isKeyExpired(key, now)
+    );
     if (expired.length === 0) {
       return res.json({ success: true, deleted: 0, keys: [] });
     }
@@ -1737,7 +1753,7 @@ app.post('/api/verify-key', async (req, res) => {
       });
     }
 
-    if (new Date(found.expires_at) < new Date()) {
+    if (isKeyExpired(found)) {
       return res.json({ 
         success: false, 
         message: 'Key đã hết hạn',
@@ -1788,8 +1804,8 @@ app.post('/api/verify-key', async (req, res) => {
 
 app.post('/api/key-info', async (req, res) => {
   try {
-    const { key } = req.body || {};
-    
+    const submittedKey = req.body?.key;
+    const key = typeof submittedKey === 'string' ? submittedKey.trim() : '';
     if (!key) {
       return res.status(400).json({ success: false, message: 'Thiếu key' });
     }
@@ -1802,23 +1818,32 @@ app.post('/api/key-info', async (req, res) => {
     }
 
     const now = new Date();
-    const expiresAt = new Date(found.expires_at);
-    const isExpired = expiresAt < now;
-    const daysRemaining = Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24));
+    const isPermanent = isPermanentKey(found);
+    const expiresAt = isPermanent ? null : found.expires_at;
+    const expiresAtDate = expiresAt ? new Date(expiresAt) : null;
+    const isExpired = isKeyExpired(found, now.getTime());
+    const daysRemaining = isPermanent || isExpired || !expiresAtDate
+      ? null
+      : Math.ceil((expiresAtDate.getTime() - now.getTime()) / 86400000);
 
     res.json({
       success: true,
       info: {
+        key_code: found.key_code,
         type: found.type,
+        package_id: found.package_id || null,
         created_at: found.created_at,
-        expires_at: found.expires_at,
+        expires_at: expiresAt,
+        is_permanent: isPermanent,
         is_expired: isExpired,
-        days_remaining: isExpired ? 0 : daysRemaining,
-        devices_used: found.devices.length,
+        days_remaining: daysRemaining,
+        devices_used: Array.isArray(found.devices) ? found.devices.length : 0,
         devices_allowed: found.allowed_devices,
         total_verifications: found.total_verifications || 0,
         last_verified: found.last_verified || 'Never',
-        is_custom: found.is_custom || false
+        is_custom: found.is_custom || false,
+        active: !isExpired,
+        status: isExpired ? 'expired' : 'active'
       }
     });
   } catch(err) {
@@ -2034,8 +2059,8 @@ app.get('/api/admin/stats', requireAdmin, async (req, res) => {
       activeUsers: users.filter(u => u.isActive && !u.isBanned).length,
       bannedUsers: users.filter(u => u.isBanned).length,
       totalKeys: keys.length,
-      activeKeys: keys.filter(k => new Date(k.expires_at) > now).length,
-      expiredKeys: keys.filter(k => new Date(k.expires_at) <= now).length,
+      activeKeys: keys.filter(k => !isKeyExpired(k, now.getTime())).length,
+      expiredKeys: keys.filter(k => isKeyExpired(k, now.getTime())).length,
       totalDevices: devices.length,
       totalVerifications: keys.reduce((sum, k) => sum + (k.total_verifications || 0), 0),
       totalAIRequests: aiLogs.length,
@@ -2229,7 +2254,7 @@ app.post("/api/device-uid/register", async (req, res) => {
         });
       }
 
-      if (new Date(found.expires_at) < new Date()) {
+      if (isKeyExpired(found)) {
         return res.status(400).json({
           success: false,
           message: "Key đã hết hạn",
@@ -2321,8 +2346,9 @@ app.post("/api/device-uid/lookup", async (req, res) => {
         key_code:        k.key_code,
         type:            k.type,
         expires_at:      k.expires_at,
-        is_expired:      new Date(k.expires_at) < now,
-        days_remaining:  Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
+        is_permanent:    isPermanentKey(k),
+        is_expired:      isKeyExpired(k, now.getTime()),
+        days_remaining:  isPermanentKey(k) ? null : Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
         devices_used:    k.devices.length,
         devices_allowed: k.allowed_devices
       }));
@@ -2370,8 +2396,9 @@ app.get("/api/device-uid/my-keys", async (req, res) => {
         key_code:        k.key_code,
         type:            k.type,
         expires_at:      k.expires_at,
-        is_expired:      new Date(k.expires_at) < now,
-        days_remaining:  Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
+        is_permanent:    isPermanentKey(k),
+        is_expired:      isKeyExpired(k, now.getTime()),
+        days_remaining:  isPermanentKey(k) ? null : Math.max(0, Math.ceil((new Date(k.expires_at) - now) / 86400000)),
         devices_used:    k.devices.length,
         devices_allowed: k.allowed_devices,
         total_verifications: k.total_verifications || 0
@@ -2424,7 +2451,7 @@ app.get("/api/admin/devices", requireAdmin, async (req, res) => {
       key_count:       d.keys.length,
       active_key_count: d.keys.filter(kc => {
         const k = keys.find(k => k.key_code === kc);
-        return k && new Date(k.expires_at) > now;
+        return k && !isKeyExpired(k, now.getTime());
       }).length
     }));
 

@@ -528,6 +528,7 @@
             <option value="month">Tháng</option>
             <option value="year">Năm</option>
             <option value="today">Trong ngày</option>
+            <option value="permanent">Vĩnh viễn</option>
           </select>
         </div>
         <div class="field">
@@ -576,6 +577,7 @@
             <option value="month">Tháng</option>
             <option value="year">Năm</option>
             <option value="today">Trong ngày</option>
+            <option value="permanent">Vĩnh viễn</option>
           </select>
         </div>
         <div class="field">
@@ -1125,7 +1127,7 @@ async function loadOverview() {
 
     const keys = Array.isArray(keysRes.data) ? keysRes.data : [];
     const now = new Date();
-    const active = keys.filter(k => new Date(k.expires_at) > now).length;
+    const active = keys.filter(k => k.is_permanent === true || new Date(k.expires_at) > now).length;
     const deviceCount = (devicesRes.data && devicesRes.data.count) || 0;
 
     $('overviewStats').querySelector('[data-stat="devices"]').textContent = deviceCount;
@@ -1208,7 +1210,7 @@ async function bulkCreateKeys() {
 function updateDurationInput(inputId, unitId) {
   const input = $(inputId);
   const unit = $(unitId).value;
-  input.disabled = unit === 'today';
+  input.disabled = unit === 'today' || unit === 'permanent';
   if (unit === 'today') input.value = '1';
   else if (!input.value || Number(input.value) < 1) input.value = '1';
 }
@@ -1315,8 +1317,8 @@ async function loadAllKeys() {
       <th class="select-column"><input id="keysSelectPage" type="checkbox" aria-label="Chọn tất cả key trên trang" onchange="toggleVisibleKeySelection(this.checked)"></th>
       <th>Key</th><th>Thiết bị đã dùng</th><th>Ngày tạo</th><th>Hết hạn</th><th>Thời lượng</th><th>Kích hoạt</th><th>Gói</th><th>Nguồn</th><th>Trạng thái</th><th>Thao tác</th>
     </tr></thead><tbody>${data.map(k => {
-      const expiresAt = new Date(k.expires_at);
-      const expired = expiresAt <= now;
+      const expiresAt = k.is_permanent === true ? null : new Date(k.expires_at);
+      const expired = k.is_permanent !== true && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now);
       const createdAt = k.created_at ? new Date(k.created_at).toLocaleDateString('vi-VN') : '—';
       const deviceUids = Array.isArray(k.devices) ? [...new Set(k.devices.filter(uid => typeof uid === 'string' && uid.trim()))] : [];
       const deviceDetails = new Map((Array.isArray(k.device_info) ? k.device_info : [])
@@ -1334,12 +1336,12 @@ async function loadAllKeys() {
         <td data-label="Key"><span class="mono-cell">${escapeHtml(k.key_code || '—')}</span></td>
         <td data-label="Thiết bị đã dùng">${deviceSummary}</td>
         <td data-label="Ngày tạo">${createdAt}</td>
-        <td data-label="Hết hạn">${Number.isNaN(expiresAt.getTime()) ? '—' : expiresAt.toLocaleDateString('vi-VN')}</td>
-        <td data-label="Thời lượng">${Number.isNaN(expiresAt.getTime()) || !k.created_at ? '—' : Math.max(0, Math.ceil((expiresAt - new Date(k.created_at)) / 86400000)) + ' ngày'}</td>
+        <td data-label="Hết hạn">${k.is_permanent === true ? 'Vĩnh viễn' : Number.isNaN(expiresAt.getTime()) ? '—' : expiresAt.toLocaleDateString('vi-VN')}</td>
+        <td data-label="Thời lượng">${k.is_permanent === true ? 'Vĩnh viễn' : Number.isNaN(expiresAt.getTime()) || !k.created_at ? '—' : Math.max(0, Math.ceil((expiresAt - new Date(k.created_at)) / 86400000)) + ' ngày'}</td>
         <td data-label="Kích hoạt">${(k.devices || []).length}/${Number(k.allowed_devices) || 0}</td>
         <td data-label="Gói">${escapeHtml(k.package_id || k.package || k.type || '—')}</td>
         <td data-label="Nguồn">${escapeHtml(k.owner_username || k.owner_id || 'public')}</td>
-        <td data-label="Trạng thái"><span class="tag ${expired?'expired':'live'}">${expired?'hết hạn':'còn hạn'}</span></td>
+        <td data-label="Trạng thái"><span class="tag ${expired?'expired':'live'}">${expired?'hết hạn':k.is_permanent === true?'vĩnh viễn':'còn hạn'}</span></td>
         <td data-label="Thao tác"><button class="btn secondary" data-key="${escapeHtml(k.key_code || '')}" onclick="openKeyTools(this.dataset.key)">Quản lý</button></td>
       </tr>`;
     }).join('')}</tbody></table>`;
